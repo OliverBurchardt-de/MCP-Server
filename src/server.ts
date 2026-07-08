@@ -1,3 +1,18 @@
+/**
+ * Verdrahtet die Tools und Ressourcen zum fertigen MCP-Server.
+ *
+ * Hier werden alle Werkzeuge registriert, die Claude aufrufen kann — die
+ * dateibasierten Analyse-Tools und die DATEV-Cloud-Tools —, jeweils mit
+ * deutscher Beschreibung und Zod-Eingabeschema. Zusätzlich wird die Ressource
+ * `datev://help` bereitgestellt, ein Spickzettel, mit dem sich das Modell selbst
+ * über Ablauf und Konventionen orientieren kann.
+ *
+ * @remarks
+ * Die eigentliche Logik liegt in `tools/*`; diese Datei ist bewusst nur die
+ * Registrierungsschicht. Jeder Tool-Handler läuft durch {@link safe}, damit
+ * Fehler als saubere, lesbare Meldung bei Claude ankommen statt den Server zu
+ * stören.
+ */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getAccountBalance, getAccountBalanceSchema } from './tools/balance.js';
@@ -10,28 +25,37 @@ import {
   datevGetSumsAndBalancesSchema,
   datevListClientsSchema,
   datevListFiscalYearsSchema,
-  datevLoadFromCloudSchema
+  datevLoadFromCloudSchema,
 } from './tools/cloud.js';
 
+/** Verpackt ein beliebiges Ergebnis als MCP-Text-Inhalt (formatiertes JSON). */
 const toContent = (payload: unknown) => ({
   content: [
     {
       type: 'text' as const,
-      text: JSON.stringify(payload, null, 2)
-    }
-  ]
+      text: JSON.stringify(payload, null, 2),
+    },
+  ],
 });
 
+/** Verpackt einen Fehler als MCP-Fehlerinhalt mit lesbarer Meldung. */
 const toErrorContent = (error: unknown) => ({
   isError: true,
   content: [
     {
       type: 'text' as const,
-      text: error instanceof Error ? error.message : String(error)
-    }
-  ]
+      text: error instanceof Error ? error.message : String(error),
+    },
+  ],
 });
 
+/**
+ * Führt einen Tool-Handler aus und fängt Fehler ab.
+ *
+ * @param handler - Die eigentliche Tool-Logik (synchron oder asynchron).
+ * @returns Erfolg als Text-Inhalt, Fehler als Fehlerinhalt — nie ein Wurf, damit
+ *   der Server stabil bleibt und Claude die Meldung dem Nutzer erklären kann.
+ */
 const safe = async (handler: () => unknown | Promise<unknown>) => {
   try {
     return toContent(await handler());
@@ -40,6 +64,7 @@ const safe = async (handler: () => unknown | Promise<unknown>) => {
   }
 };
 
+/** Inhalt der Ressource `datev://help` — Selbstorientierung für das Modell. */
 const HELP_TEXT = `# DATEV MCP-Server — Kurzanleitung
 
 ## Datenquellen
@@ -66,10 +91,19 @@ const HELP_TEXT = `# DATEV MCP-Server — Kurzanleitung
 - Beträge sind in der Buchungswährung (Feld currency, meist EUR).
 - In der Sandbox existiert nur der Testmandant 455148-1 mit Demodaten.`;
 
+/**
+ * Erstellt und konfiguriert die MCP-Server-Instanz.
+ *
+ * Registriert die Ressource `datev://help` sowie alle Tools (Datei- und
+ * Cloud-Tools) mit Titel, deutscher Beschreibung und Eingabeschema.
+ *
+ * @returns Der einsatzbereite {@link McpServer}, den `index.ts` an ein Transport
+ *   anbindet.
+ */
 export const createServer = () => {
   const server = new McpServer({
     name: 'datev-mcp-server',
-    version: '0.2.0'
+    version: '0.2.0',
   });
 
   const cloud = new CloudTools();
@@ -79,11 +113,12 @@ export const createServer = () => {
     'datev://help',
     {
       title: 'DATEV MCP-Server Kurzanleitung',
-      description: 'Ablauf, Tool-Übersicht und fachliche Konventionen (Soll/Haben, SKR, IDs).',
-      mimeType: 'text/markdown'
+      description:
+        'Ablauf, Tool-Übersicht und fachliche Konventionen (Soll/Haben, SKR, IDs).',
+      mimeType: 'text/markdown',
     },
     async (uri) => ({
-      contents: [{ uri: uri.href, mimeType: 'text/markdown', text: HELP_TEXT }]
+      contents: [{ uri: uri.href, mimeType: 'text/markdown', text: HELP_TEXT }],
     })
   );
 
@@ -94,8 +129,8 @@ export const createServer = () => {
       description:
         'Lädt eine DATEV-Buchungsstapel-Exportdatei (EXTF/DTVF-CSV) in den Arbeitsspeicher. Danach können get_account_balance, get_open_items, list_bookings und search_documents Fragen dazu beantworten.',
       inputSchema: {
-        path: z.string().min(1)
-      }
+        path: z.string().min(1),
+      },
     },
     async ({ path }) => safe(() => loadDatevFile({ path }))
   );
@@ -107,8 +142,8 @@ export const createServer = () => {
       description:
         'Berechnet den Saldo eines Kontos (Soll minus Haben) aus dem aktiven Datensatz, inkl. Anzahl Buchungen und letztem Buchungsdatum.',
       inputSchema: {
-        account: z.string().min(1)
-      }
+        account: z.string().min(1),
+      },
     },
     async ({ account }) => safe(() => getAccountBalance({ account }))
   );
@@ -122,8 +157,8 @@ export const createServer = () => {
       inputSchema: {
         overdueOnly: z.boolean().optional(),
         type: z.enum(['debtor', 'creditor']).optional(),
-        referenceDate: z.string().optional()
-      }
+        referenceDate: z.string().optional(),
+      },
     },
     async (input) => safe(() => getOpenItems(input))
   );
@@ -139,8 +174,8 @@ export const createServer = () => {
         from: z.string().optional(),
         to: z.string().optional(),
         minAmount: z.number().optional(),
-        text: z.string().optional()
-      }
+        text: z.string().optional(),
+      },
     },
     async (input) => safe(() => listBookings(input))
   );
@@ -152,8 +187,8 @@ export const createServer = () => {
       description:
         'Durchsucht Buchungstext, Belegfeld 1 und Belegfeld 2 des aktiven Datensatzes nach einem Suchbegriff (z. B. einer Rechnungsnummer).',
       inputSchema: {
-        query: z.string().min(1)
-      }
+        query: z.string().min(1),
+      },
     },
     async ({ query }) => safe(() => searchDocuments({ query }))
   );
@@ -164,7 +199,7 @@ export const createServer = () => {
       title: 'DATEV-Verbindungsstatus',
       description:
         'Zeigt Umgebung (Sandbox/Produktion), ob die App konfiguriert und ein Nutzer angemeldet ist, sowie die geladenen Datensätze.',
-      inputSchema: {}
+      inputSchema: {},
     },
     async () => safe(() => cloud.status())
   );
@@ -175,7 +210,7 @@ export const createServer = () => {
       title: 'DATEV-Anmeldung starten',
       description:
         'Startet die Anmeldung bei DATEV (OAuth mit PKCE) und liefert eine URL, die der Nutzer im Browser öffnet. Der Anmeldestatus ist danach über datev_status sichtbar.',
-      inputSchema: {}
+      inputSchema: {},
     },
     async () => safe(() => cloud.login())
   );
@@ -186,7 +221,7 @@ export const createServer = () => {
       title: 'DATEV-Mandanten auflisten',
       description:
         'Listet die Mandanten, für die der angemeldete DATEV-Nutzer berechtigt ist. Liefert die clientId (Format Beraternummer-Mandantennummer) für alle weiteren Tools.',
-      inputSchema: datevListClientsSchema
+      inputSchema: datevListClientsSchema,
     },
     async (input) => safe(() => cloud.listClients(input))
   );
@@ -197,7 +232,7 @@ export const createServer = () => {
       title: 'Wirtschaftsjahre eines Mandanten',
       description:
         'Listet die verfügbaren Wirtschaftsjahre eines Mandanten (fiscalYearId als Zahl JJJJMMTT) inkl. Beginn/Ende und Kontenrahmen.',
-      inputSchema: datevListFiscalYearsSchema
+      inputSchema: datevListFiscalYearsSchema,
     },
     async (input) => safe(() => cloud.listFiscalYears(input))
   );
@@ -208,7 +243,7 @@ export const createServer = () => {
       title: 'Buchungsdaten aus der DATEV-Cloud laden',
       description:
         'Lädt alle Buchungen eines Wirtschaftsjahres aus der DATEV-Cloud in den Arbeitsspeicher (DATEV bereitet die Daten asynchron auf — bei Status "in_arbeit" dieselbe Anfrage nach ~30 Sekunden wiederholen). Danach arbeiten get_account_balance, get_open_items, list_bookings und search_documents auf den Live-Daten.',
-      inputSchema: datevLoadFromCloudSchema
+      inputSchema: datevLoadFromCloudSchema,
     },
     async (input) => safe(() => cloud.loadFromCloud(input))
   );
@@ -219,7 +254,7 @@ export const createServer = () => {
       title: 'Summen- und Saldenliste (live)',
       description:
         'Ruft die Summen- und Saldenliste eines Wirtschaftsjahres direkt aus der DATEV-Cloud ab (inkl. EB-Werten und Monatswerten). Über Kontonummern-Filter eingrenzen; Ausgabe ist auf 200 Zeilen begrenzt.',
-      inputSchema: datevGetSumsAndBalancesSchema
+      inputSchema: datevGetSumsAndBalancesSchema,
     },
     async (input) => safe(() => cloud.getSumsAndBalances(input))
   );
@@ -232,5 +267,5 @@ export const schemas = {
   getAccountBalanceSchema,
   getOpenItemsSchema,
   listBookingsSchema,
-  searchDocumentsSchema
+  searchDocumentsSchema,
 };

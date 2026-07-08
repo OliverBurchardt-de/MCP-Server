@@ -1,30 +1,65 @@
+/**
+ * HTTP-Client für die DATEV-Cloud-APIs.
+ *
+ * Kapselt die drei wiederkehrenden Aufgaben jedes Aufrufs: gültiges Token
+ * besorgen (über den {@link TokenManager}), Pflicht-Header setzen und
+ * vorübergehende Fehler (429/503) begrenzt wiederholen. Fehlerantworten werden
+ * in einen {@link DatevError} mit deutscher Meldung übersetzt.
+ */
 import type { DatevConfig } from '../config.js';
 import type { FetchLike } from '../auth/oauth.js';
 import type { TokenManager } from '../auth/token-manager.js';
 import { datevErrorFromResponse } from './errors.js';
 
+/** Abbruchzeit für einen einzelnen HTTP-Aufruf. */
 const REQUEST_TIMEOUT_MS = 60_000;
+/** Maximale Zahl an Wiederholungen bei 429/503. */
 const MAX_RETRIES = 2;
 
+/** Rohantwort eines DATEV-Aufrufs (Status, Header, unverarbeiteter Text). */
 export interface DatevResponse {
   status: number;
   headers: Headers;
   text: string;
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+/** Kleine Verzögerungshilfe für die Retry-Wartezeit. */
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Führt authentifizierte Aufrufe gegen die DATEV-Cloud-APIs aus. */
 export class DatevHttpClient {
+  /**
+   * @param config - Aktive Konfiguration (liefert u. a. die Client-ID für den Header).
+   * @param tokenManager - Quelle gültiger Zugriffstoken.
+   * @param fetchImpl - Injizierbare `fetch`-Implementierung (für Tests).
+   */
   constructor(
     private readonly config: DatevConfig,
     private readonly tokenManager: TokenManager,
     private readonly fetchImpl: FetchLike = fetch
   ) {}
 
+  /**
+   * Führt einen Aufruf aus und liefert die Rohantwort.
+   *
+   * @param baseUrl - Basis-URL des Dienstes (aus der Konfiguration).
+   * @param path - Pfad relativ zur Basis-URL (mit führendem `/`).
+   * @param options - HTTP-Methode (Standard `GET`) und optionale Query-Parameter;
+   *   `undefined`-Werte werden weggelassen.
+   * @returns Die {@link DatevResponse} bei Erfolg (2xx).
+   * @throws DatevError - bei jeder Nicht-2xx-Antwort (nach etwaigen Retries).
+   * @remarks
+   * Jeder Aufruf trägt zwei Pflicht-Nachweise: den `Authorization: Bearer`-Token
+   * UND den `X-DATEV-Client-Id`-Header — DATEV verlangt beides gemeinsam.
+   */
   async request(
     baseUrl: string,
     path: string,
-    options: { method?: 'GET' | 'POST'; query?: Record<string, string | number | undefined> } = {}
+    options: {
+      method?: 'GET' | 'POST';
+      query?: Record<string, string | number | undefined>;
+    } = {}
   ): Promise<DatevResponse> {
     const url = new URL(baseUrl + path);
     for (const [key, value] of Object.entries(options.query ?? {})) {
@@ -41,14 +76,24 @@ export class DatevHttpClient {
           Authorization: `Bearer ${accessToken}`,
           // DATEV verlangt die OAuth-Client-ID zusätzlich als eigenen Header.
           'X-DATEV-Client-Id': this.config.clientId,
-          Accept: 'application/json, application/x-ndjson'
+          Accept: 'application/json, application/x-ndjson',
         },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 
-      if ((response.status === 429 || response.status === 503) && attempt < MAX_RETRIES) {
-        const retryAfter = Number.parseInt(response.headers.get('retry-after') ?? '', 10);
-        await sleep(Number.isFinite(retryAfter) ? retryAfter * 1000 : 2000 * (attempt + 1));
+      // 429 (Ratenlimit) und 503 (kurzzeitig nicht erreichbar) sind
+      // vorübergehend: `Retry-After` respektieren, sonst linear zurückstufen.
+      if (
+        (response.status === 429 || response.status === 503) &&
+        attempt < MAX_RETRIES
+      ) {
+        const retryAfter = Number.parseInt(
+          response.headers.get('retry-after') ?? '',
+          10
+        );
+        await sleep(
+          Number.isFinite(retryAfter) ? retryAfter * 1000 : 2000 * (attempt + 1)
+        );
         continue;
       }
 
@@ -61,6 +106,11 @@ export class DatevHttpClient {
     }
   }
 
+  /**
+   * Führt einen GET-Aufruf aus und parst die Antwort als einzelnes JSON-Objekt.
+   *
+   * @typeParam T - Erwarteter Antworttyp.
+   */
   async getJson<T>(
     baseUrl: string,
     path: string,
@@ -70,7 +120,15 @@ export class DatevHttpClient {
     return JSON.parse(response.text) as T;
   }
 
-  /** DATEV liefert Listen als NDJSON (ein JSON-Objekt pro Zeile) oder als JSON-Array. */
+  /**
+   * Führt einen GET-Aufruf aus und parst die Antwort als Liste.
+   *
+   * @typeParam T - Typ eines Listenelements.
+   * @returns Die Elemente plus die Antwort-Header (für Paginierung, z. B.
+   *   `x-total-count`/`x-total-pages`).
+   * @remarks DATEV liefert Listen als NDJSON (ein JSON-Objekt pro Zeile),
+   *   toleriert wird auch ein klassisches JSON-Array — siehe {@link parseNdjson}.
+   */
   async getNdjson<T>(
     baseUrl: string,
     path: string,
@@ -81,6 +139,13 @@ export class DatevHttpClient {
   }
 }
 
+/**
+ * Parst NDJSON (ein JSON-Objekt je Zeile) und — als Toleranz — JSON-Arrays.
+ *
+ * @typeParam T - Typ eines Elements.
+ * @param text - Roher Antworttext.
+ * @returns Ein Array der geparsten Elemente; leerer/whitespace-Text ergibt `[]`.
+ */
 export const parseNdjson = <T>(text: string): T[] => {
   const trimmed = text.trim();
   if (!trimmed) {

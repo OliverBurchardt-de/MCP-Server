@@ -1,8 +1,25 @@
+/**
+ * Parser für DATEV-Buchungsstapel im EXTF/DTVF-Format.
+ *
+ * Unterstützt zwei Varianten:
+ * 1. **Offizielles DATEV-Format** (Zeile 1 beginnt mit `"EXTF"`/`"DTVF"`): Zeile 1
+ *    ist ein positionaler Header, Zeile 2 enthält die Spaltenüberschriften, ab
+ *    Zeile 3 folgen die Buchungen.
+ * 2. **Vereinfachtes Schlüssel/Wert-Format** (Testdaten): Zeile 1 = Feldnamen,
+ *    Zeile 2 = Werte, Zeile 3 = Spaltenüberschriften, ab Zeile 4 Buchungen.
+ *
+ * @remarks
+ * DATEV-Exporte sind Latin-1-kodiert und `;`-getrennt. Beträge nutzen die
+ * deutsche Schreibweise (Tausenderpunkt, Dezimalkomma); Datumsangaben sind je
+ * nach Variante `JJJJMMTT` oder — im offiziellen Buchungsteil — `TTMM` ohne Jahr
+ * (das Jahr wird über den Wirtschaftsjahresbeginn ergänzt).
+ */
 import fs from 'node:fs';
 import iconv from 'iconv-lite';
 import { parse } from 'csv-parse/sync';
 import type { DatevBooking, DatevDataset, DatevHeader } from './types.js';
 
+/** Normalisiert `JJJJMMTT` oder bereits-ISO-Daten zu `JJJJ-MM-TT`. */
 const normalizeDate = (value: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -20,6 +37,7 @@ const normalizeDate = (value: string): string | undefined => {
   return undefined;
 };
 
+/** Wandelt einen deutschen Betrag (`1.234,56`) in eine Zahl (`1234.56`). */
 const parseAmount = (value: string): number => {
   const normalized = value.trim().replace(/\./g, '').replace(',', '.');
   if (!normalized) {
@@ -30,7 +48,16 @@ const parseAmount = (value: string): number => {
   return Number.isFinite(amount) ? amount : 0;
 };
 
-const accountTypeFrom = (account: string): 'debtor' | 'creditor' | undefined => {
+/**
+ * Leitet aus der Kontonummer den Personenkonto-Typ ab.
+ *
+ * @remarks
+ * Konvention in SKR03/SKR04: Debitoren (Kunden) 10000–69999, Kreditoren
+ * (Lieferanten) 70000–99999. Sachkonten (4-stellig) ergeben `undefined`.
+ */
+const accountTypeFrom = (
+  account: string
+): 'debtor' | 'creditor' | undefined => {
   const numeric = Number.parseInt(account, 10);
   if (Number.isNaN(numeric)) {
     return undefined;
@@ -47,6 +74,7 @@ const accountTypeFrom = (account: string): 'debtor' | 'creditor' | undefined => 
   return undefined;
 };
 
+/** Baut den Header aus dem vereinfachten Schlüssel/Wert-Format (Testdaten). */
 const mapLegacyHeader = (line1: string[], line2: string[]): DatevHeader => {
   const keys = line1.map((value) => value.trim());
   const values = line2.map((value) => value.trim());
@@ -63,7 +91,7 @@ const mapLegacyHeader = (line1: string[], line2: string[]): DatevHeader => {
     consultantName: get('Beratername') || undefined,
     clientName: get('Mandantenname') || undefined,
     rawLine1: line1,
-    rawLine2: line2
+    rawLine2: line2,
   };
 };
 
@@ -86,14 +114,17 @@ const mapOfficialHeader = (line1: string[], line2: string[]): DatevHeader => {
     consultantName: undefined,
     clientName: get(16) || undefined,
     rawLine1: line1,
-    rawLine2: line2
+    rawLine2: line2,
   };
 };
 
 // Belegdatum im offiziellen Buchungsstapel ist TTMM (ohne Jahr). Das Jahr
 // stammt aus dem WJ-Beginn; bei abweichendem Wirtschaftsjahr liegen Monate
 // vor dem WJ-Beginn-Monat im Folgejahr.
-const normalizeDocumentDate = (value: string, fiscalYearStart: string): string => {
+const normalizeDocumentDate = (
+  value: string,
+  fiscalYearStart: string
+): string => {
   const trimmed = value.trim();
   if (!trimmed) {
     return '';
@@ -120,6 +151,13 @@ const normalizeDocumentDate = (value: string, fiscalYearStart: string): string =
   return '';
 };
 
+/**
+ * Liefert den ersten nicht-leeren Wert unter mehreren möglichen Spaltennamen.
+ *
+ * @remarks
+ * Fängt Namensunterschiede zwischen den Formaten ab, z. B. `Belegfeld 1`
+ * (offiziell) vs. `Belegfeld1` (Testformat).
+ */
 const pick = (record: Record<string, string>, ...names: string[]): string => {
   for (const name of names) {
     const value = record[name];
@@ -130,6 +168,16 @@ const pick = (record: Record<string, string>, ...names: string[]): string => {
   return '';
 };
 
+/**
+ * Wandelt die Buchungszeilen in {@link DatevBooking}-Objekte.
+ *
+ * @param rows - Datenzeilen (ohne Header/Spaltenzeile).
+ * @param columns - Spaltenüberschriften zum Zuordnen der Werte.
+ * @param header - Bereits geparster Header (liefert u. a. den WJ-Beginn für die
+ *   Auflösung des TTMM-Belegdatums).
+ * @param firstDataLine - Zeilennummer der ersten Datenzeile in der Originaldatei
+ *   (für die `rowNumber` zur Nachvollziehbarkeit).
+ */
 const mapBookings = (
   rows: string[][],
   columns: string[],
@@ -138,17 +186,29 @@ const mapBookings = (
 ): DatevBooking[] =>
   rows.map((row, index) => {
     const record = Object.fromEntries(
-      columns.map((column, columnIndex) => [column, (row[columnIndex] ?? '').trim()])
+      columns.map((column, columnIndex) => [
+        column,
+        (row[columnIndex] ?? '').trim(),
+      ])
     );
     const account = pick(record, 'Konto', 'Sachkonto');
-    const contraAccount = pick(record, 'Gegenkonto (ohne BU-Schlüssel)', 'Gegenkonto');
+    const contraAccount = pick(
+      record,
+      'Gegenkonto (ohne BU-Schlüssel)',
+      'Gegenkonto'
+    );
     const dueDate = normalizeDate(pick(record, 'Fälligkeit', 'Faelligkeit'));
     const rawDate = pick(record, 'Belegdatum', 'Buchungsdatum', 'Datum');
     const bookingDate =
-      normalizeDate(rawDate) ?? normalizeDocumentDate(rawDate, header.fiscalYearStart);
-    const amount = parseAmount(pick(record, 'Umsatz (ohne Soll/Haben-Kz)', 'Umsatz', 'Betrag') || '0');
+      normalizeDate(rawDate) ??
+      normalizeDocumentDate(rawDate, header.fiscalYearStart);
+    const amount = parseAmount(
+      pick(record, 'Umsatz (ohne Soll/Haben-Kz)', 'Umsatz', 'Betrag') || '0'
+    );
     const direction =
-      (pick(record, 'Soll/Haben-Kennzeichen', 'Soll/Haben', 'Saldo') || 'S').toUpperCase() === 'H'
+      (
+        pick(record, 'Soll/Haben-Kennzeichen', 'Soll/Haben', 'Saldo') || 'S'
+      ).toUpperCase() === 'H'
         ? 'H'
         : 'S';
     const openItemFlag = (record['Offener Posten'] || '').toLowerCase();
@@ -171,19 +231,31 @@ const mapBookings = (
         openItemFlag === '1' ||
         accountTypeFrom(account) !== undefined,
       rowNumber: index + firstDataLine,
-      raw: record
+      raw: record,
     };
   });
 
+/**
+ * Liest eine DATEV-Buchungsstapel-Datei und wandelt sie in einen {@link DatevDataset}.
+ *
+ * Erkennt anhand des Kennzeichens in Zeile 1 automatisch, ob das offizielle
+ * DATEV-Format oder das vereinfachte Testformat vorliegt.
+ *
+ * @param filePath - Pfad zur EXTF/DTVF-CSV-Datei.
+ * @returns Der geparste Datensatz mit Header und Buchungen.
+ * @throws Error - wenn die Datei zu wenige Zeilen für einen gültigen Stapel hat.
+ */
 export const parseDatevExtfFile = (filePath: string): DatevDataset => {
   const buffer = fs.readFileSync(filePath);
+  // DATEV-Exporte sind Latin-1-kodiert; ohne diese Dekodierung würden Umlaute
+  // (ä/ö/ü/ß) in Konto- und Buchungstexten zerstört.
   const content = iconv.decode(buffer, 'latin1');
   const rows = parse(content, {
     delimiter: ';',
     relax_column_count: true,
     skip_empty_lines: true,
     bom: false,
-    trim: false
+    trim: false,
   }) as string[][];
 
   const marker = (rows[0]?.[0] ?? '').trim().replace(/^"|"$/g, '');
@@ -201,7 +273,13 @@ export const parseDatevExtfFile = (filePath: string): DatevDataset => {
     const header = mapOfficialHeader(line1, rows[1] ?? []);
     const bookings = mapBookings(rows.slice(2), columns, header, 3);
 
-    return { filePath, header, columns, bookings, loadedAt: new Date().toISOString() };
+    return {
+      filePath,
+      header,
+      columns,
+      bookings,
+      loadedAt: new Date().toISOString(),
+    };
   }
 
   // Vereinfachtes Schlüssel/Wert-Format: Zeile 1 = Header-Feldnamen,
@@ -212,7 +290,19 @@ export const parseDatevExtfFile = (filePath: string): DatevDataset => {
   const header = mapLegacyHeader(line1, line2);
   const bookings = mapBookings(rows.slice(3), columns, header, 4);
 
-  return { filePath, header, columns, bookings, loadedAt: new Date().toISOString() };
+  return {
+    filePath,
+    header,
+    columns,
+    bookings,
+    loadedAt: new Date().toISOString(),
+  };
 };
 
+/**
+ * Öffentlicher Alias für die Personenkonto-Einordnung.
+ *
+ * @remarks Wird u. a. von `get_open_items` genutzt, um Debitoren/Kreditoren zu
+ *   unterscheiden. Siehe {@link accountTypeFrom} für die Kontenbereiche.
+ */
 export const getPersonAccountType = accountTypeFrom;

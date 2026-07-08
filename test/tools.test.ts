@@ -32,7 +32,10 @@ describe('DATEV tools', () => {
   });
 
   it('returns filtered open items and overdue status', () => {
-    const result = getOpenItems({ overdueOnly: true, referenceDate: '2026-03-10' });
+    const result = getOpenItems({
+      overdueOnly: true,
+      referenceDate: '2026-03-10',
+    });
 
     expect(result.count).toBe(4);
     expect(result.items.every((item) => item.overdue)).toBe(true);

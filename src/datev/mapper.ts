@@ -1,6 +1,19 @@
-import type { DatevBooking, DatevDataset, DatevHeader } from '../parser/types.js';
+/**
+ * Übersetzt Cloud-Buchungssätze in das gemeinsame {@link DatevBooking}-Modell.
+ *
+ * Kernidee der Architektur: Egal ob die Daten aus einer EXTF-Datei oder aus der
+ * DATEV-Cloud stammen — sie landen im selben internen Modell. So arbeiten die
+ * Analyse-Tools (`get_account_balance`, `get_open_items`, …) unverändert auf
+ * beiden Quellen.
+ */
+import type {
+  DatevBooking,
+  DatevDataset,
+  DatevHeader,
+} from '../parser/types.js';
 import type { AccountPosting, FiscalYearDetails } from './types.js';
 
+/** Kürzt einen ISO-Zeitstempel auf das reine Datum (`JJJJ-MM-TT`). */
 const isoDate = (value: string | undefined): string => {
   if (!value) {
     return '';
@@ -9,16 +22,31 @@ const isoDate = (value: string | undefined): string => {
   return value.slice(0, 10);
 };
 
-export const mapAccountPosting = (posting: AccountPosting, index: number): DatevBooking => {
+/**
+ * Wandelt einen einzelnen Cloud-Buchungssatz in ein {@link DatevBooking}.
+ *
+ * @param posting - Buchungssatz aus der Accounting-Data-Exchange-API.
+ * @param index - Position in der Liste; ergibt die 1-basierte `rowNumber`.
+ * @returns Das interne Buchungsobjekt.
+ * @remarks Genau eines von `amountDebit`/`amountCredit` ist gesetzt; daraus
+ *   leiten wir Betrag und Soll/Haben-Richtung ab.
+ */
+export const mapAccountPosting = (
+  posting: AccountPosting,
+  index: number
+): DatevBooking => {
   const debit = posting.amountDebit ?? 0;
   const credit = posting.amountCredit ?? 0;
 
   return {
     bookingDate: isoDate(posting.date),
     dueDate: undefined,
-    account: posting.accountNumber !== undefined ? String(posting.accountNumber) : '',
+    account:
+      posting.accountNumber !== undefined ? String(posting.accountNumber) : '',
     contraAccount:
-      posting.contraAccountNumber !== undefined ? String(posting.contraAccountNumber) : '',
+      posting.contraAccountNumber !== undefined
+        ? String(posting.contraAccountNumber)
+        : '',
     amount: debit || credit,
     direction: debit ? 'S' : 'H',
     bookingText: posting.postingDescription ?? '',
@@ -29,11 +57,26 @@ export const mapAccountPosting = (posting: AccountPosting, index: number): Datev
     isOpenItem: false,
     rowNumber: index + 1,
     raw: Object.fromEntries(
-      Object.entries(posting).map(([key, value]) => [key, value === undefined ? '' : String(value)])
-    )
+      Object.entries(posting).map(([key, value]) => [
+        key,
+        value === undefined ? '' : String(value),
+      ])
+    ),
   };
 };
 
+/**
+ * Baut aus Cloud-Buchungen einen vollständigen {@link DatevDataset}.
+ *
+ * @param clientId - Mandant `Beraternummer-Mandantennummer`; wird für den
+ *   Header aufgeteilt.
+ * @param clientName - Mandantenname (Komfort, optional).
+ * @param fiscalYearId - Wirtschaftsjahr `JJJJMMTT` (Fallback für den Header).
+ * @param fiscalYear - Stammdaten des Wirtschaftsjahres (optional).
+ * @param postings - Die zu übernehmenden Buchungssätze.
+ * @returns Ein Datensatz mit synthetischem Header und gemappten Buchungen; die
+ *   `filePath` ist eine `datev-cloud://`-Pseudo-URL als Store-Schlüssel.
+ */
 export const buildCloudDataset = (
   clientId: string,
   clientName: string | undefined,
@@ -46,25 +89,30 @@ export const buildCloudDataset = (
     clientNumber: clientId.split('-')[1] ?? '',
     fiscalYearStart: isoDate(fiscalYear?.yearBegin) || String(fiscalYearId),
     accountLength: fiscalYear?.accountLength ?? 4,
-    accountFramework: fiscalYear?.accountSystem !== undefined ? `SKR${fiscalYear.accountSystem}` : '',
+    accountFramework:
+      fiscalYear?.accountSystem !== undefined
+        ? `SKR${fiscalYear.accountSystem}`
+        : '',
     dateFrom: isoDate(fiscalYear?.yearBegin),
     dateTo: isoDate(fiscalYear?.yearEnd),
     consultantName: undefined,
     clientName,
     rawLine1: [],
-    rawLine2: []
+    rawLine2: [],
   };
 
   // Eröffnungsbilanz-Buchungen würden Saldo-Fragen verfälschen, wenn der
   // Nutzer nur nach Bewegungen fragt — sie bleiben aber im Datensatz, damit
   // Salden stimmen. Kennzeichnung steckt in raw.isOpeningBalancePosting.
-  const bookings = postings.map((posting, index) => mapAccountPosting(posting, index));
+  const bookings = postings.map((posting, index) =>
+    mapAccountPosting(posting, index)
+  );
 
   return {
     filePath: `datev-cloud://${clientId}/${fiscalYearId}`,
     header,
     columns: [],
     bookings,
-    loadedAt: new Date().toISOString()
+    loadedAt: new Date().toISOString(),
   };
 };

@@ -16,9 +16,9 @@ const makeConfig = (overrides: Partial<DatevConfig> = {}): DatevConfig => ({
     DATEV_ENV: 'sandbox',
     DATEV_CLIENT_ID: 'test-client-id',
     DATEV_CLIENT_SECRET: 'test-secret',
-    DATEV_TOKEN_STORE: path.join(tempDir, 'tokens.json')
+    DATEV_TOKEN_STORE: path.join(tempDir, 'tokens.json'),
   }),
-  ...overrides
+  ...overrides,
 });
 
 let tempDir: string;
@@ -36,14 +36,17 @@ const jsonResponse = (body: unknown, init: ResponseInit = {}): Response =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
-    ...init
+    ...init,
   });
 
-const storeValidTokens = (config: DatevConfig, expiresInMs = 3_600_000): void => {
+const storeValidTokens = (
+  config: DatevConfig,
+  expiresInMs = 3_600_000
+): void => {
   new FileTokenStore(config.tokenStorePath).save({
     accessToken: 'valid-access-token',
     refreshToken: 'valid-refresh-token',
-    expiresAt: Date.now() + expiresInMs
+    expiresAt: Date.now() + expiresInMs,
   });
 };
 
@@ -85,19 +88,22 @@ describe('TokenManager', () => {
     new FileTokenStore(config.tokenStorePath).save({
       accessToken: 'expired',
       refreshToken: 'old-refresh',
-      expiresAt: Date.now() - 1000
+      expiresAt: Date.now() - 1000,
     });
 
     const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
       jsonResponse({
         access_token: 'fresh-access',
         refresh_token: 'rotated-refresh',
-        expires_in: 3600
+        expires_in: 3600,
       })
     );
     const manager = new TokenManager(config, fetchMock as unknown as FetchLike);
 
-    const [first, second] = await Promise.all([manager.getAccessToken(), manager.getAccessToken()]);
+    const [first, second] = await Promise.all([
+      manager.getAccessToken(),
+      manager.getAccessToken(),
+    ]);
 
     expect(first).toBe('fresh-access');
     expect(second).toBe('fresh-access');
@@ -108,7 +114,9 @@ describe('TokenManager', () => {
 
     const init = fetchMock.mock.calls[0]?.[1];
     expect(String(init?.body)).toContain('grant_type=refresh_token');
-    expect((init?.headers as Record<string, string>).Authorization).toMatch(/^Basic /);
+    expect((init?.headers as Record<string, string>).Authorization).toMatch(
+      /^Basic /
+    );
   });
 });
 
@@ -122,7 +130,11 @@ describe('datevErrorFromResponse', () => {
   it('includes ProblemDetail title and detail', () => {
     const error = datevErrorFromResponse(
       404,
-      JSON.stringify({ title: 'Not Found', detail: 'Client unknown', requestId: 'req-1' })
+      JSON.stringify({
+        title: 'Not Found',
+        detail: 'Client unknown',
+        requestId: 'req-1',
+      })
     );
     expect(error.message).toContain('Not Found — Client unknown');
     expect(error.requestId).toBe('req-1');
@@ -150,7 +162,9 @@ describe('DatevHttpClient', () => {
       fetchMock as unknown as FetchLike
     );
 
-    await client.getJson(config.accountingClientsBaseUrl, '/clients', { top: 5 });
+    await client.getJson(config.accountingClientsBaseUrl, '/clients', {
+      top: 5,
+    });
 
     const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(String(url)).toBe(
@@ -199,13 +213,16 @@ describe('AccountPostingsJobRunner', () => {
       // Ergebnisseiten
       .mockResolvedValueOnce(
         jsonResponse(`${JSON.stringify(posting)}\n`, {
-          headers: { 'x-total-pages': '2', 'x-total-count': '2' }
+          headers: { 'x-total-pages': '2', 'x-total-count': '2' },
         })
       )
       .mockResolvedValueOnce(
-        jsonResponse(`${JSON.stringify({ ...posting, accountNumber: 4930 })}\n`, {
-          headers: { 'x-total-pages': '2', 'x-total-count': '2' }
-        })
+        jsonResponse(
+          `${JSON.stringify({ ...posting, accountNumber: 4930 })}\n`,
+          {
+            headers: { 'x-total-pages': '2', 'x-total-count': '2' },
+          }
+        )
       );
 
     const client = new DatevHttpClient(
@@ -269,7 +286,9 @@ describe('AccountPostingsJobRunner', () => {
     storeValidTokens(config);
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ jobId: 'job-bad' }, { status: 202 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ jobId: 'job-bad' }, { status: 202 })
+      )
       .mockResolvedValueOnce(jsonResponse({ jobState: 'FAILED' }));
 
     const client = new DatevHttpClient(
@@ -279,7 +298,9 @@ describe('AccountPostingsJobRunner', () => {
     );
     const runner = new AccountPostingsJobRunner(config, client);
 
-    await expect(runner.run('455148-1', 20260101)).rejects.toThrow(/fehlgeschlagen/);
+    await expect(runner.run('455148-1', 20260101)).rejects.toThrow(
+      /fehlgeschlagen/
+    );
   });
 });
 
@@ -293,7 +314,7 @@ describe('mapper', () => {
         date: '2026-01-05',
         postingDescription: 'Büromaterial',
         documentField1: 'BM-1001',
-        currencyCode: 'EUR'
+        currencyCode: 'EUR',
       },
       0
     );
@@ -302,7 +323,10 @@ describe('mapper', () => {
     expect(debit.account).toBe('4930');
     expect(debit.bookingDate).toBe('2026-01-05');
 
-    const credit = mapAccountPosting({ accountNumber: 8400, amountCredit: 500 }, 1);
+    const credit = mapAccountPosting(
+      { accountNumber: 8400, amountCredit: 500 },
+      1
+    );
     expect(credit.direction).toBe('H');
     expect(credit.amount).toBe(500);
   });
@@ -312,7 +336,12 @@ describe('mapper', () => {
       '455148-1',
       'Testmandant',
       20260101,
-      { yearBegin: '2026-01-01', yearEnd: '2026-12-31', accountLength: 4, accountSystem: '03' },
+      {
+        yearBegin: '2026-01-01',
+        yearEnd: '2026-12-31',
+        accountLength: 4,
+        accountSystem: '03',
+      },
       [{ accountNumber: 1200, amountDebit: 1, date: '2026-01-02' }]
     );
 

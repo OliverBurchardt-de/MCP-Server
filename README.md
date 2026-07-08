@@ -5,30 +5,37 @@ der Claude Fragen zu DATEV-Buchhaltungsdaten beantworten lässt — aus
 **EXTF-Exportdateien** (sofort, offline) oder **live aus der DATEV-Cloud**
 (Accounting Data Exchange, OAuth mit PKCE).
 
-> Nicht-technische Anleitung für die Kanzlei: **[ANLEITUNG.md](ANLEITUNG.md)**
+### Dokumentation im Überblick
+
+| Dokument                                                           | Zielgruppe / Inhalt                                                                                                 |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| **[ANLEITUNG.md](ANLEITUNG.md)**                                   | Anwender/Kanzlei — Einrichtung und Nutzung, ohne Technik.                                                           |
+| **[docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md)**                     | Entwickler — was/warum/wie: Entscheidungen, Modul-Durchgang, OAuth- und Job-Ablauf, Erweiterungsleitfaden, Glossar. |
+| **[docs/DATEV-PORTAL-NOTIZEN.md](docs/DATEV-PORTAL-NOTIZEN.md)**   | Verifizierte API-/OAuth-Fakten als Referenz.                                                                        |
+| **[docs/ONBOARDING-PRODUKTION.md](docs/ONBOARDING-PRODUKTION.md)** | Checkliste für den Weg in den Echtbetrieb.                                                                          |
 
 ## Funktionsumfang
 
 **Analyse-Tools** (arbeiten auf dem aktiven Datensatz — Datei oder Cloud):
 
-| Tool | Beantwortet |
-|---|---|
-| `get_account_balance` | „Wie ist der Saldo auf Konto 1200?" |
-| `get_open_items` | „Welche Kunden schulden uns Geld?" (Debitoren/Kreditoren, überfällig) |
-| `list_bookings` | „Alle Buchungen über 1.000 € im Februar" |
-| `search_documents` | „Suche Rechnung RE-2026-0089" |
+| Tool                  | Beantwortet                                                           |
+| --------------------- | --------------------------------------------------------------------- |
+| `get_account_balance` | „Wie ist der Saldo auf Konto 1200?"                                   |
+| `get_open_items`      | „Welche Kunden schulden uns Geld?" (Debitoren/Kreditoren, überfällig) |
+| `list_bookings`       | „Alle Buchungen über 1.000 € im Februar"                              |
+| `search_documents`    | „Suche Rechnung RE-2026-0089"                                         |
 
 **Datenquellen:**
 
-| Tool | Zweck |
-|---|---|
-| `load_datev_file` | EXTF/DTVF-Buchungsstapel-Export laden (offizielles Format und vereinfachtes Testformat) |
-| `datev_login` | DATEV-Anmeldung (OAuth 2.0 Authorization Code + PKCE, Sandbox oder Produktion) |
-| `datev_list_clients` | Mandanten des angemeldeten Nutzers |
-| `datev_list_fiscal_years` | Wirtschaftsjahre eines Mandanten |
-| `datev_load_from_cloud` | Alle Buchungen eines Wirtschaftsjahres laden (asynchroner DATEV-Job mit Fortsetzung) |
-| `datev_get_sums_and_balances` | Summen-/Saldenliste live inkl. EB- und Monatswerten |
-| `datev_status` | Umgebung, Anmeldestatus, geladene Datensätze |
+| Tool                          | Zweck                                                                                   |
+| ----------------------------- | --------------------------------------------------------------------------------------- |
+| `load_datev_file`             | EXTF/DTVF-Buchungsstapel-Export laden (offizielles Format und vereinfachtes Testformat) |
+| `datev_login`                 | DATEV-Anmeldung (OAuth 2.0 Authorization Code + PKCE, Sandbox oder Produktion)          |
+| `datev_list_clients`          | Mandanten des angemeldeten Nutzers                                                      |
+| `datev_list_fiscal_years`     | Wirtschaftsjahre eines Mandanten                                                        |
+| `datev_load_from_cloud`       | Alle Buchungen eines Wirtschaftsjahres laden (asynchroner DATEV-Job mit Fortsetzung)    |
+| `datev_get_sums_and_balances` | Summen-/Saldenliste live inkl. EB- und Monatswerten                                     |
+| `datev_status`                | Umgebung, Anmeldestatus, geladene Datensätze                                            |
 
 Dazu die MCP-Resource `datev://help` mit einer Kurzanleitung für das Modell.
 

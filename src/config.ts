@@ -1,37 +1,88 @@
+/**
+ * Zentrale Konfiguration des DATEV-MCP-Servers.
+ *
+ * Sämtliche umgebungsabhängigen Werte (Sandbox vs. Produktion, OAuth-Endpunkte,
+ * API-Basis-URLs, Speicherort der Tokens) werden hier aus Umgebungsvariablen
+ * abgeleitet. Der Rest des Codes bezieht diese Werte ausschließlich über das
+ * {@link DatevConfig}-Objekt und kennt keine URLs oder Zugangsdaten direkt.
+ *
+ * @remarks
+ * Die Konfiguration ist bewusst dateibasiert/ENV-basiert gehalten, damit sie in
+ * Claude Desktop pro Server-Eintrag gesetzt werden kann (siehe ANLEITUNG.md).
+ */
 import os from 'node:os';
 import path from 'node:path';
 
+/** DATEV-Umgebung: `sandbox` (Übungsumgebung) oder `production` (Echtdaten). */
 export type DatevEnvironment = 'sandbox' | 'production';
 
+/** Aufgelöste Laufzeitkonfiguration — von {@link loadConfig} erzeugt. */
 export interface DatevConfig {
+  /** Aktive Umgebung; steuert Endpunkte und Token-Ablage. */
   environment: DatevEnvironment;
+  /** OAuth-Client-ID der im DATEV-Entwicklerportal registrierten App. */
   clientId: string;
+  /** OAuth-Client-Secret der App (Confidential Client). */
   clientSecret: string;
+  /** Authorization-Endpunkt (Login-Seite von DATEV). */
   authorizeUrl: string;
+  /** Token-Endpunkt (Code- bzw. Refresh-Token-Einlösung). */
   tokenUrl: string;
+  /** Port des lokalen Callback-Servers für den Login. */
   redirectPort: number;
+  /** Vollständige Redirect-URI; muss exakt so bei DATEV registriert sein. */
   redirectUri: string;
+  /** Angeforderte OAuth-Scopes (u. a. `offline_access` für den Refresh-Token). */
   scopes: string[];
+  /** Basis-URL des accounting-clients-Dienstes (Mandantenliste). */
   accountingClientsBaseUrl: string;
+  /** Basis-URL des Accounting-Data-Exchange-Dienstes (Buchungsdaten). */
   accountingDataExchangeBaseUrl: string;
+  /** Pfad der lokalen Token-Datei (pro Umgebung getrennt). */
   tokenStorePath: string;
 }
 
-const ENDPOINTS: Record<DatevEnvironment, { authorize: string; token: string; basePath: string }> = {
+/**
+ * Fest verdrahtete DATEV-Endpunkte je Umgebung.
+ *
+ * @remarks
+ * Sandbox und Produktion unterscheiden sich nur in Host bzw. Basispfad:
+ * Sandbox nutzt `openidsandbox` / `sandbox-api` / `platform-sandbox`,
+ * Produktion die entsprechenden Live-Varianten.
+ */
+const ENDPOINTS: Record<
+  DatevEnvironment,
+  { authorize: string; token: string; basePath: string }
+> = {
   sandbox: {
     authorize: 'https://login.datev.de/openidsandbox/authorize',
     token: 'https://sandbox-api.datev.de/token',
-    basePath: 'platform-sandbox'
+    basePath: 'platform-sandbox',
   },
   production: {
     authorize: 'https://login.datev.de/openid/authorize',
     token: 'https://api.datev.de/token',
-    basePath: 'platform'
-  }
+    basePath: 'platform',
+  },
 };
 
-export const loadConfig = (env: NodeJS.ProcessEnv = process.env): DatevConfig => {
-  const environment: DatevEnvironment = env.DATEV_ENV === 'production' ? 'production' : 'sandbox';
+/**
+ * Baut die {@link DatevConfig} aus Umgebungsvariablen.
+ *
+ * Fehlt `DATEV_ENV` oder ist es ungleich `production`, wird bewusst die
+ * sichere Sandbox gewählt. Fehlende Client-Zugangsdaten führen NICHT zum
+ * Fehler — der Dateimodus funktioniert ohne DATEV-Login; erst die Cloud-Tools
+ * prüfen `clientId`/`clientSecret`.
+ *
+ * @param env - Zu lesende Umgebung; Standard ist `process.env`. Der Parameter
+ *   existiert vor allem, damit Tests eine kontrollierte Umgebung übergeben können.
+ * @returns Die vollständig aufgelöste Laufzeitkonfiguration.
+ */
+export const loadConfig = (
+  env: NodeJS.ProcessEnv = process.env
+): DatevConfig => {
+  const environment: DatevEnvironment =
+    env.DATEV_ENV === 'production' ? 'production' : 'sandbox';
   const endpoints = ENDPOINTS[environment];
   const redirectPort = Number.parseInt(env.DATEV_REDIRECT_PORT ?? '53682', 10);
 
@@ -42,15 +93,19 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): DatevConfig =>
     authorizeUrl: endpoints.authorize,
     tokenUrl: endpoints.token,
     redirectPort,
-    redirectUri: env.DATEV_REDIRECT_URI ?? `http://localhost:${redirectPort}/callback`,
-    scopes: (env.DATEV_SCOPES ?? 'openid profile offline_access datev:accounting:clients datev:accounting:exchange').split(
-      /\s+/
-    ),
+    redirectUri:
+      env.DATEV_REDIRECT_URI ?? `http://localhost:${redirectPort}/callback`,
+    scopes: (
+      env.DATEV_SCOPES ??
+      'openid profile offline_access datev:accounting:clients datev:accounting:exchange'
+    ).split(/\s+/),
     accountingClientsBaseUrl: `https://accounting-clients.api.datev.de/${endpoints.basePath}/v2`,
     accountingDataExchangeBaseUrl: `https://accounting-data-exchange.api.datev.de/${endpoints.basePath}/v1`,
     tokenStorePath:
-      env.DATEV_TOKEN_STORE ?? path.join(os.homedir(), '.datev-mcp', `tokens-${environment}.json`)
+      env.DATEV_TOKEN_STORE ??
+      path.join(os.homedir(), '.datev-mcp', `tokens-${environment}.json`),
   };
 };
 
+/** Prozessweit gemeinsam genutzte Konfiguration (einmalig beim Start gelesen). */
 export const config = loadConfig();

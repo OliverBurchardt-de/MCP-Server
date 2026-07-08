@@ -1,3 +1,17 @@
+/**
+ * Implementierung der DATEV-Cloud-Tools.
+ *
+ * Bündelt Anmeldung, Mandanten-/Wirtschaftsjahr-Abfragen, das Laden von
+ * Buchungsdaten (über den Job-Runner) und die Summen-/Saldenliste. Die Klasse
+ * hält die zusammengehörigen Bausteine (TokenManager, HTTP-Client, Job-Runner)
+ * und wird in {@link file://../server.ts} an die MCP-Tools angebunden.
+ *
+ * @remarks
+ * Alle Methoden geben schlichte Objekte mit **deutschen** Schlüsseln zurück,
+ * da diese Antworten direkt von Claude interpretiert und dem Nutzer erklärt
+ * werden. Die Zod-Schemas nutzen `describe`, damit Claude die Parameter korrekt
+ * befüllt.
+ */
 import { z } from 'zod';
 import { config as defaultConfig, type DatevConfig } from '../config.js';
 import type { FetchLike } from '../auth/oauth.js';
@@ -9,25 +23,38 @@ import { buildCloudDataset } from '../datev/mapper.js';
 import type {
   CloudClient,
   FiscalYearDetails,
-  SumsAndBalancesEntry
+  SumsAndBalancesEntry,
 } from '../datev/types.js';
 import { datevStore } from '../store/memory.js';
 
+/** Obergrenze der in einer Antwort zurückgegebenen Zeilen (Kontext-Schutz). */
 const MAX_RESULT_ROWS = 200;
 
+/** Eingabeschema für `datev_list_clients`. */
+
 export const datevListClientsSchema = {
-  search: z.string().optional().describe('Filtert nach Namensbestandteil oder Nummer'),
+  search: z
+    .string()
+    .optional()
+    .describe('Filtert nach Namensbestandteil oder Nummer'),
   skip: z.number().int().min(0).optional(),
-  top: z.number().int().min(1).max(100).optional()
+  top: z.number().int().min(1).max(100).optional(),
 };
 
+/** Eingabeschema für `datev_list_fiscal_years` (definiert auch die `clientId`). */
 export const datevListFiscalYearsSchema = {
   clientId: z
     .string()
-    .regex(/^\d{4,7}-\d{1,5}$/, 'Format: Beraternummer-Mandantennummer, z. B. 455148-1')
-    .describe('Mandanten-ID im Format Beraternummer-Mandantennummer (aus datev_list_clients)')
+    .regex(
+      /^\d{4,7}-\d{1,5}$/,
+      'Format: Beraternummer-Mandantennummer, z. B. 455148-1'
+    )
+    .describe(
+      'Mandanten-ID im Format Beraternummer-Mandantennummer (aus datev_list_clients)'
+    ),
 };
 
+/** Eingabeschema für `datev_load_from_cloud`. */
 export const datevLoadFromCloudSchema = {
   clientId: datevListFiscalYearsSchema.clientId,
   fiscalYearId: z
@@ -35,29 +62,48 @@ export const datevLoadFromCloudSchema = {
     .int()
     .min(19920101)
     .max(20991231)
-    .describe('Wirtschaftsjahr-ID als Zahl JJJJMMTT (aus datev_list_fiscal_years), z. B. 20260101')
+    .describe(
+      'Wirtschaftsjahr-ID als Zahl JJJJMMTT (aus datev_list_fiscal_years), z. B. 20260101'
+    ),
 };
 
+/** Eingabeschema für `datev_get_sums_and_balances` (mit Konto-/Monatsfiltern). */
 export const datevGetSumsAndBalancesSchema = {
   clientId: datevListFiscalYearsSchema.clientId,
   fiscalYearId: datevLoadFromCloudSchema.fiscalYearId,
-  accountFrom: z.number().int().optional().describe('Nur Konten ab dieser Kontonummer'),
-  accountTo: z.number().int().optional().describe('Nur Konten bis zu dieser Kontonummer'),
-  accounts: z.array(z.number().int()).optional().describe('Nur genau diese Kontonummern'),
+  accountFrom: z
+    .number()
+    .int()
+    .optional()
+    .describe('Nur Konten ab dieser Kontonummer'),
+  accountTo: z
+    .number()
+    .int()
+    .optional()
+    .describe('Nur Konten bis zu dieser Kontonummer'),
+  accounts: z
+    .array(z.number().int())
+    .optional()
+    .describe('Nur genau diese Kontonummern'),
   month: z
     .number()
     .int()
     .min(1)
     .max(12)
     .optional()
-    .describe('Nur der Monatswert dieses Wirtschaftsjahresmonats (1-12)')
+    .describe('Nur der Monatswert dieses Wirtschaftsjahresmonats (1-12)'),
 };
 
+/** Stellt die Geschäftslogik hinter den DATEV-Cloud-Tools bereit. */
 export class CloudTools {
   private readonly tokenManager: TokenManager;
   private readonly http: DatevHttpClient;
   private readonly jobs: AccountPostingsJobRunner;
 
+  /**
+   * @param config - Aktive Konfiguration; Standard ist die globale {@link config}.
+   * @param fetchImpl - Injizierbare `fetch`-Implementierung (für Tests).
+   */
   constructor(
     private readonly config: DatevConfig = defaultConfig,
     private readonly fetchImpl: FetchLike = fetch
@@ -67,23 +113,42 @@ export class CloudTools {
     this.jobs = new AccountPostingsJobRunner(config, this.http);
   }
 
+  /**
+   * `datev_status`: Umgebung, App-/Anmeldezustand und geladene Datensätze.
+   *
+   * @returns Ein Statusobjekt inkl. handlungsleitendem Hinweis für den Nutzer.
+   */
   status(): Record<string, unknown> {
     const loginState = getLoginState();
     return {
       umgebung: this.config.environment,
-      appKonfiguriert: Boolean(this.config.clientId && this.config.clientSecret),
+      appKonfiguriert: Boolean(
+        this.config.clientId && this.config.clientSecret
+      ),
       angemeldet: this.tokenManager.isLoggedIn(),
       loginVorgang: loginState.status,
-      ...(loginState.status === 'error' ? { loginFehler: loginState.message } : {}),
+      ...(loginState.status === 'error'
+        ? { loginFehler: loginState.message }
+        : {}),
       geladeneDatensaetze: datevStore.list(),
       hinweis: this.tokenManager.isLoggedIn()
         ? 'Verbunden. Mit datev_list_clients starten.'
-        : 'Nicht angemeldet. Mit datev_login die DATEV-Anmeldung starten (oder mit load_datev_file eine Exportdatei nutzen).'
+        : 'Nicht angemeldet. Mit datev_login die DATEV-Anmeldung starten (oder mit load_datev_file eine Exportdatei nutzen).',
     };
   }
 
+  /**
+   * `datev_login`: startet den OAuth-Flow und liefert die Login-URL.
+   *
+   * @returns Die Anmelde-URL plus eine umgebungsabhängige Anleitung.
+   * @throws Error - wenn die App nicht konfiguriert ist (siehe {@link startLoginFlow}).
+   */
   login(): Record<string, unknown> {
-    const authorizeUrl = startLoginFlow(this.config, this.tokenManager, this.fetchImpl);
+    const authorizeUrl = startLoginFlow(
+      this.config,
+      this.tokenManager,
+      this.fetchImpl
+    );
     return {
       anmeldeUrl: authorizeUrl,
       anleitung:
@@ -91,10 +156,16 @@ export class CloudTools {
         (this.config.environment === 'sandbox'
           ? ' (Sandbox: Benutzer "Test6" wählen).'
           : ' (SmartLogin oder SmartCard).') +
-        ' Nach erfolgreicher Anmeldung zeigt datev_status "angemeldet: true".'
+        ' Nach erfolgreicher Anmeldung zeigt datev_status "angemeldet: true".',
     };
   }
 
+  /**
+   * `datev_list_clients`: Mandanten des angemeldeten Nutzers.
+   *
+   * @param input - Optionaler Namens-/Nummernfilter und Paginierung.
+   * @returns Anzahl und Liste der Mandanten inkl. `clientId` für Folge-Tools.
+   */
   async listClients(input: {
     search?: string;
     skip?: number;
@@ -106,7 +177,7 @@ export class CloudTools {
       {
         filter: input.search,
         skip: input.skip,
-        top: input.top ?? 100
+        top: input.top ?? 100,
       }
     );
 
@@ -117,14 +188,26 @@ export class CloudTools {
         name: client.name,
         beraternummer: client.consultant_number,
         mandantennummer: client.client_number,
-        dienste: client.services?.map((service) => service.name).filter(Boolean)
+        dienste: client.services
+          ?.map((service) => service.name)
+          .filter(Boolean),
       })),
       hinweis:
-        'Die clientId (Format Beraternummer-Mandantennummer) wird für alle weiteren DATEV-Tools benötigt.'
+        'Die clientId (Format Beraternummer-Mandantennummer) wird für alle weiteren DATEV-Tools benötigt.',
     };
   }
 
-  async listFiscalYears(input: { clientId: string }): Promise<Record<string, unknown>> {
+  /**
+   * `datev_list_fiscal_years`: Wirtschaftsjahre eines Mandanten mit Stammdaten.
+   *
+   * @param input - Mandant (`clientId`).
+   * @returns Liste der Wirtschaftsjahre (fiscalYearId, Beginn/Ende, Kontenrahmen).
+   * @remarks Es werden bis zu 12 Jahre mit Details angereichert; schlägt eine
+   *   Detailabfrage fehl, bleibt zumindest die `fiscalYearId` erhalten.
+   */
+  async listFiscalYears(input: {
+    clientId: string;
+  }): Promise<Record<string, unknown>> {
     const base = this.config.accountingDataExchangeBaseUrl;
     const { items: fiscalYearIds } = await this.http.getNdjson<number>(
       base,
@@ -142,9 +225,12 @@ export class CloudTools {
             fiscalYearId,
             beginn: detail.yearBegin?.slice(0, 10),
             ende: detail.yearEnd?.slice(0, 10),
-            kontenrahmen: detail.accountSystem !== undefined ? `SKR${detail.accountSystem}` : undefined,
+            kontenrahmen:
+              detail.accountSystem !== undefined
+                ? `SKR${detail.accountSystem}`
+                : undefined,
             sachkontenlaenge: detail.accountLength,
-            waehrung: detail.currencyCode
+            waehrung: detail.currencyCode,
           };
         } catch {
           return { fiscalYearId };
@@ -155,10 +241,21 @@ export class CloudTools {
     return {
       wirtschaftsjahre: details,
       hinweis:
-        'Die fiscalYearId für datev_load_from_cloud und datev_get_sums_and_balances verwenden.'
+        'Die fiscalYearId für datev_load_from_cloud und datev_get_sums_and_balances verwenden.',
     };
   }
 
+  /**
+   * `datev_load_from_cloud`: lädt alle Buchungen eines Wirtschaftsjahres.
+   *
+   * Startet bzw. setzt den DATEV-Job fort, mappt die Buchungen ins gemeinsame
+   * Modell und legt sie als aktiven Datensatz ab. Danach beantworten die
+   * Analyse-Tools Fragen auf diesen Live-Daten.
+   *
+   * @param input - Mandant und Wirtschaftsjahr.
+   * @returns Bei laufendem Job `status: in_arbeit` mit Hinweis, sonst
+   *   `status: geladen` mit Buchungsanzahl und Kürzungsinfo.
+   */
   async loadFromCloud(input: {
     clientId: string;
     fiscalYearId: number;
@@ -169,7 +266,7 @@ export class CloudTools {
       return {
         status: 'in_arbeit',
         jobId: result.jobId,
-        hinweis: result.hint
+        hinweis: result.hint,
       };
     }
 
@@ -211,10 +308,19 @@ export class CloudTools {
       gesamtAnzahl: result.totalCount,
       abgeschnitten: result.truncated,
       hinweis:
-        'Die Buchungen sind jetzt geladen. Fragen können mit get_account_balance, get_open_items, list_bookings und search_documents beantwortet werden.'
+        'Die Buchungen sind jetzt geladen. Fragen können mit get_account_balance, get_open_items, list_bookings und search_documents beantwortet werden.',
     };
   }
 
+  /**
+   * `datev_get_sums_and_balances`: Summen-/Saldenliste direkt aus der Cloud.
+   *
+   * @param input - Mandant, Wirtschaftsjahr und optionale Konto-/Monatsfilter.
+   * @returns Gesamt- und angezeigte Anzahl sowie die (auf {@link MAX_RESULT_ROWS}
+   *   begrenzten) Kontozeilen; bei Kürzung mit Hinweis zum Eingrenzen.
+   * @remarks Die API liefert alle Konten ohne serverseitigen Filter — die
+   *   Einschränkung nach Kontonummer/Monat erfolgt daher hier im Server.
+   */
   async getSumsAndBalances(input: {
     clientId: string;
     fiscalYearId: number;
@@ -257,20 +363,25 @@ export class CloudTools {
             monat: input.month,
             monatssaldo: entry.sumsAndBalancesMonthValues?.find(
               (value) => value.fiscalYearMonth === input.month
-            )?.monthlyBalance
+            )?.monthlyBalance,
           }
-        : {})
+        : {}),
     }));
 
     return {
       gesamtAnzahl: filtered.length,
       angezeigt: rows.length,
       ...(filtered.length > rows.length
-        ? { hinweis: 'Ausgabe gekürzt — bitte über Kontonummern-Filter eingrenzen.' }
+        ? {
+            hinweis:
+              'Ausgabe gekürzt — bitte über Kontonummern-Filter eingrenzen.',
+          }
         : {}),
-      salden: rows
+      salden: rows,
     };
   }
 }
 
-export const isNotLoggedInError = (error: unknown): boolean => error instanceof NotLoggedInError;
+/** Typprüfung, ob ein Fehler eine fehlende Anmeldung signalisiert. */
+export const isNotLoggedInError = (error: unknown): boolean =>
+  error instanceof NotLoggedInError;
