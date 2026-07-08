@@ -1,10 +1,11 @@
 {
   "name": "datev-mcp-server",
-  "version": "0.1.0",
-  "description": "Lokaler MCP Server für DATEV EXTF Exporte mit natürlicher Sprache für Salden, offene Posten und Buchungssuche",
+  "version": "0.2.0",
+  "description": "MCP-Server für DATEV: beantwortet Fragen zu Salden, offenen Posten und Buchungen — aus EXTF-Exportdateien oder live aus der DATEV-Cloud (Accounting Data Exchange)",
   "scripts": {
     "test": "vitest run",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test eslint.config.js --ext .ts",
     "format": "prettier --write .",
     "prepare": "npm run build",
@@ -14,10 +15,9 @@
     "datev",
     "mcp",
     "model-context-protocol",
-    "finrobotics",
     "typescript"
   ],
-  "author": "FinRobotics",
+  "author": "Burchardt & Kollegen (Basis: FinRobotics datev-mcp-server, MIT)",
   "license": "MIT",
   "type": "module",
   "private": false,
