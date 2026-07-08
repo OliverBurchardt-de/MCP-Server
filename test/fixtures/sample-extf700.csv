@@ -1,0 +1,7 @@
+"EXTF";700;21;"Buchungsstapel";13;20260401120000000;;"RE";"Kanzlei";"";99999;10001;20260101;4;20260101;20260331;"Q1-Stapel";"OB";1;0;0;"EUR";;"";;"";"03";;;"";""
+"Umsatz (ohne Soll/Haben-Kz)";"Soll/Haben-Kennzeichen";"WKZ Umsatz";"Kurs";"Basis-Umsatz";"WKZ Basis-Umsatz";"Konto";"Gegenkonto (ohne BU-Schlüssel)";"BU-Schlüssel";"Belegdatum";"Belegfeld 1";"Belegfeld 2";"Skonto";"Buchungstext"
+"2500,00";"S";"EUR";"";"";"";"1200";"8400";"";"0301";"RE-1001";"Projekt Alpha";"";"Rechnung Kunde Alpha bezahlt"
+"89,50";"S";"EUR";"";"";"";"4930";"1200";"";"0501";"BM-1001";"Müller Büro";"";"Büromaterial für Büro Köln"
+"1190,00";"S";"EUR";"";"";"";"10000";"8400";"";"1502";"RE-1002";"Service Februar";"";"Offene Rechnung Kunde Beta"
+"595,00";"H";"EUR";"";"";"";"70000";"1200";"";"1802";"ER-2001";"Hardware Einkauf";"";"Lieferantenrechnung Ähre"
+"1800,00";"S";"EUR";"";"";"";"4210";"1200";"";"1203";"MI-0301";"Büro Köln";"";"Miete März"
