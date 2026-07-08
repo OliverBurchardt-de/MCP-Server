@@ -1,0 +1,49 @@
+{
+  "name": "datev-mcp-server",
+  "version": "0.1.0",
+  "description": "Lokaler MCP Server für DATEV EXTF Exporte mit natürlicher Sprache für Salden, offene Posten und Buchungssuche",
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src test eslint.config.js --ext .ts",
+    "format": "prettier --write .",
+    "prepare": "npm run build",
+    "dev": "tsx src/index.ts"
+  },
+  "keywords": [
+    "datev",
+    "mcp",
+    "model-context-protocol",
+    "finrobotics",
+    "typescript"
+  ],
+  "author": "FinRobotics",
+  "license": "MIT",
+  "type": "module",
+  "private": false,
+  "bin": {
+    "datev-mcp-server": "./dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "csv-parse": "^6.2.1",
+    "iconv-lite": "^0.7.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
+    "eslint": "^10.1.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}

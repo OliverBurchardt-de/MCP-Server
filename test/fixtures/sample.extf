@@ -1,0 +1,25 @@
+Beraternummer;Mandantennummer;WJ-Beginn;Sachkontenlänge;Kontenrahmen;Datum von;Datum bis;Beratername;Mandantenname
+99999;10001;20260101;4;SKR03;20260101;20260331;FinRobotics StB;Müller & Söhne GmbH
+Buchungsdatum;Fälligkeit;Konto;Gegenkonto;Betrag;Soll/Haben;Buchungstext;Belegfeld1;Belegfeld2;Währung;Offener Posten;Referenz
+20260103;;1200;8400;2500,00;S;Rechnung Kunde Alpha bezahlt;RE-1001;Projekt Alpha;EUR;Nein;
+20260105;;4930;1200;89,50;S;Büromaterial für Büro Köln;BM-1001;Müller Büro;EUR;Nein;
+20260107;;4970;1200;12,99;S;Bankgebühren Januar;BG-0101;Konto 1200;EUR;Nein;
+20260110;;4920;1200;65,40;S;Telefon Januar;TEL-0101;Anschluss Büro;EUR;Nein;
+20260112;;4210;1200;1800,00;S;Miete Januar;MI-0101;Büro Köln;EUR;Nein;
+20260115;20260214;10000;8400;1190,00;S;Offene Rechnung Kunde Beta;RE-1002;Service Februar;EUR;Ja;OP-1002
+20260118;20260205;70000;1200;595,00;H;Offene Lieferantenrechnung Delta;ER-2001;Hardware Einkauf;EUR;Ja;OP-2001
+20260122;;1200;8400;3250,00;S;Rechnung Kunde Gamma bezahlt;RE-1003;Projekt Gamma;EUR;Nein;
+20260202;;4930;1200;145,20;S;Büromaterial Umlaut für Küche;BM-1002;Küche Öl;EUR;Nein;
+20260204;;4650;1200;96,30;S;Bewirtung mit Kunde Ähre;BW-1001;Restaurant Löwe;EUR;Nein;
+20260208;;4970;1200;11,99;S;Bankgebühren Februar;BG-0201;Konto 1200;EUR;Nein;
+20260210;;4920;1200;65,40;S;Telefon Februar;TEL-0201;Anschluss Büro;EUR;Nein;
+20260212;;4210;1200;1800,00;S;Miete Februar;MI-0201;Büro Köln;EUR;Nein;
+20260216;20260301;10000;8400;2380,00;S;Offene Rechnung Kunde Beta Folgeauftrag;RE-1004;Service März;EUR;Ja;OP-1004
+20260218;20260305;70000;1200;714,00;H;Offene Lieferantenrechnung Echo;ER-2002;Cloud Hosting;EUR;Ja;OP-2002
+20260224;;1200;8400;4100,00;S;Rechnung Kunde Delta bezahlt;RE-1005;Projekt Delta;EUR;Nein;
+20260302;;4930;1200;58,70;S;Büromaterial März;BM-1003;Papierlager;EUR;Nein;
+20260304;;4650;1200;132,40;S;Bewirtung Team Mittag;BW-1002;Bistro Süd;EUR;Nein;
+20260307;;4970;1200;13,49;S;Bankgebühren März;BG-0301;Konto 1200;EUR;Nein;
+20260310;;4920;1200;65,40;S;Telefon März;TEL-0301;Anschluss Büro;EUR;Nein;
+20260312;;4210;1200;1800,00;S;Miete März;MI-0301;Büro Köln;EUR;Nein;
+20260320;;1200;8400;2875,00;S;Rechnung Kunde Epsilon bezahlt;RE-1006;Projekt Epsilon;EUR;Nein;

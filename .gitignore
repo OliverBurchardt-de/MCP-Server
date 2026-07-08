@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.local
+*.tsbuildinfo
+coverage/
+# Lokale Token-Dateien (falls versehentlich ins Projekt gelegt)
+tokens-*.json
+.datev-mcp/
