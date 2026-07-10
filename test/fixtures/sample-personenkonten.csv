@@ -1,0 +1,5 @@
+"DTVF";700;21;"Buchungsstapel";13;20260101120000000;;"RE";"test";"";413885;90011;20260101;4;20260601;20260630;"Testexport";"ob";1;0;1;"EUR";;"KP";;;"03";;;"";""
+Umsatz (ohne Soll/Haben-Kz);Soll/Haben-Kennzeichen;WKZ Umsatz;Konto;Gegenkonto (ohne BU-Schlüssel);Belegdatum;Belegfeld 1;Belegfeld 2;Fälligkeit;Buchungstext
+100,00;S;EUR;4980;70013;0106;ER-1;;;Betriebsbedarf Lieferant X
+500,00;S;EUR;10000;8400;0206;AR-2;;14072026;Ausgangsrechnung Kunde Y
+50,00;S;EUR;4930;1200;0306;BM-3;;;Buerobedarf

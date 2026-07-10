@@ -153,11 +153,12 @@ export const createServer = () => {
     {
       title: 'Offene Posten auflisten',
       description:
-        'Listet offene Debitoren- (Kunden) und Kreditorenposten (Lieferanten) aus dem aktiven Datensatz. Optional nur überfällige Posten.',
+        'Listet Posten auf Personenkonten (Debitoren/Kunden und Kreditoren/Lieferanten) aus dem aktiven Datensatz — das Personenkonto wird auf Haupt- und Gegenkonto erkannt. Optional nur überfällige Posten. Hinweis: Grundlage sind die Buchungen dieses Stapels, kein periodenübergreifender OPOS-Abgleich; echte offene (unbezahlte) Posten liefert die Summen-/Saldenliste der DATEV-Cloud.',
       inputSchema: {
         overdueOnly: z.boolean().optional(),
         type: z.enum(['debtor', 'creditor']).optional(),
         referenceDate: z.string().optional(),
+        maxResults: z.number().int().min(1).max(200).optional(),
       },
     },
     async (input) => safe(() => getOpenItems(input))

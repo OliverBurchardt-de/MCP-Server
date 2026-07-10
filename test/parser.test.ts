@@ -67,3 +67,15 @@ describe('parseDatevExtfFile with official EXTF header (Formatversion 700)', () 
     expect(creditor?.isOpenItem).toBe(true);
   });
 });
+
+describe('parseDatevExtfFile Fälligkeit (TTMMJJJJ)', () => {
+  const personenkontenPath = path.resolve('test/fixtures/sample-personenkonten.csv');
+
+  it('parses a TTMMJJJJ due date into ISO', () => {
+    const dataset = parseDatevExtfFile(personenkontenPath);
+    const debtorBooking = dataset.bookings.find((booking) => booking.account === '10000');
+
+    // Fälligkeit 14072026 (TT.MM.JJJJ) -> ISO 2026-07-14 (nicht als JJJJMMTT missdeutet).
+    expect(debtorBooking?.dueDate).toBe('2026-07-14');
+  });
+});

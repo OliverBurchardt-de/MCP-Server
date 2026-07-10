@@ -158,6 +158,39 @@ const normalizeDocumentDate = (
  * Fängt Namensunterschiede zwischen den Formaten ab, z. B. `Belegfeld 1`
  * (offiziell) vs. `Belegfeld1` (Testformat).
  */
+// Das Feld „Fälligkeit" ist im DATEV-Format als TTMMJJJJ (Tag-Monat-Jahr)
+// kodiert — anders als die Header-Datumsfelder (JJJJMMTT). Manche Bestände
+// liefern es auch als JJJJMMTT oder (selten) als TTMM ohne Jahr. Wir
+// unterscheiden anhand plausibler Jahreswerte, damit alle Varianten korrekt
+// nach ISO (JJJJ-MM-TT) landen. In der Praxis ist das Feld oft leer.
+const normalizeDueDate = (value: string, fiscalYearStart: string): string | undefined => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/^\d{8}$/.test(trimmed)) {
+    const leadingFour = Number.parseInt(trimmed.slice(0, 4), 10);
+    // Beginnt der Wert mit einer plausiblen Jahreszahl, ist es JJJJMMTT …
+    if (leadingFour >= 1992 && leadingFour <= 2099) {
+      return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}-${trimmed.slice(6, 8)}`;
+    }
+    // … andernfalls TTMMJJJJ.
+    return `${trimmed.slice(4, 8)}-${trimmed.slice(2, 4)}-${trimmed.slice(0, 2)}`;
+  }
+
+  // Vierstellig ohne Jahr (TTMM): wie beim Belegdatum über den WJ-Beginn ergänzen.
+  if (/^\d{3,4}$/.test(trimmed)) {
+    return normalizeDocumentDate(trimmed, fiscalYearStart) || undefined;
+  }
+
+  return undefined;
+};
+
 const pick = (record: Record<string, string>, ...names: string[]): string => {
   for (const name of names) {
     const value = record[name];
@@ -197,7 +230,7 @@ const mapBookings = (
       'Gegenkonto (ohne BU-Schlüssel)',
       'Gegenkonto'
     );
-    const dueDate = normalizeDate(pick(record, 'Fälligkeit', 'Faelligkeit'));
+    const dueDate = normalizeDueDate(pick(record, 'Fälligkeit', 'Faelligkeit'), header.fiscalYearStart);
     const rawDate = pick(record, 'Belegdatum', 'Buchungsdatum', 'Datum');
     const bookingDate =
       normalizeDate(rawDate) ??

@@ -57,3 +57,31 @@ describe('DATEV tools', () => {
     expect(result.items[0]?.bookingText).toContain('Folgeauftrag');
   });
 });
+
+describe('get_open_items with personenkonto on the contra side', () => {
+  beforeEach(() => {
+    datevStore.clear();
+    loadDatevFile({ path: path.resolve('test/fixtures/sample-personenkonten.csv') });
+  });
+
+  it('recognises both a debtor (primary) and a creditor (contra) posting', () => {
+    const result = getOpenItems({});
+
+    // Kreditor 70013 (Gegenkonto) und Debitor 10000 (Hauptkonto); Sachkonto ignoriert.
+    expect(result.count).toBe(2);
+    const creditor = result.items.find((item) => item.account === '70013');
+    const debtor = result.items.find((item) => item.account === '10000');
+
+    expect(creditor?.accountType).toBe('creditor');
+    expect(creditor?.amount).toBeLessThan(0); // Verbindlichkeit
+    expect(debtor?.accountType).toBe('debtor');
+    expect(debtor?.amount).toBeGreaterThan(0); // Forderung
+  });
+
+  it('filters to creditors only', () => {
+    const result = getOpenItems({ type: 'creditor' });
+
+    expect(result.count).toBe(1);
+    expect(result.items[0]?.account).toBe('70013');
+  });
+});
