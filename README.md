@@ -10,6 +10,7 @@ der Claude Fragen zu DATEV-Buchhaltungsdaten beantworten lässt — aus
 | Dokument                                                           | Zielgruppe / Inhalt                                                                                                 |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | **[ANLEITUNG.md](ANLEITUNG.md)**                                   | Anwender/Kanzlei — Einrichtung und Nutzung, ohne Technik.                                                           |
+| **[docs/SANDBOX-REGISTRIERUNG.md](docs/SANDBOX-REGISTRIERUNG.md)** | Klick-für-Klick: App im DATEV-Entwicklerportal registrieren (Client ID/Secret).                                     |
 | **[docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md)**                     | Entwickler — was/warum/wie: Entscheidungen, Modul-Durchgang, OAuth- und Job-Ablauf, Erweiterungsleitfaden, Glossar. |
 | **[docs/DATEV-PORTAL-NOTIZEN.md](docs/DATEV-PORTAL-NOTIZEN.md)**   | Verifizierte API-/OAuth-Fakten als Referenz.                                                                        |
 | **[docs/ONBOARDING-PRODUKTION.md](docs/ONBOARDING-PRODUKTION.md)** | Checkliste für den Weg in den Echtbetrieb.                                                                          |

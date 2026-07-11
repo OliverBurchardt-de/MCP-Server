@@ -55,6 +55,9 @@ die Registrierung einer „App" im DATEV-Entwicklerportal nötig (unten).
 
 Ohne diese Registrierung funktioniert nur Weg 1 (Exportdatei).
 
+> **Ausführliche Klick-für-Klick-Anleitung:** [docs/SANDBOX-REGISTRIERUNG.md](docs/SANDBOX-REGISTRIERUNG.md).
+> Die folgenden Punkte sind die Kurzfassung.
+
 1. Auf https://developer.datev.de anmelden bzw. registrieren.
 2. Eine neue App anlegen mit genau diesen Einstellungen:
    - **Authorization Flow:** OpenID Connect Authorization Code Flow (nicht „Hybrid")
