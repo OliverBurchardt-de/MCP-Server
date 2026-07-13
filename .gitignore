@@ -7,3 +7,5 @@ coverage/
 # Lokale Token-Dateien (falls versehentlich ins Projekt gelegt)
 tokens-*.json
 .datev-mcp/
+# Fremdes Referenzmaterial (z. B. Klardaten-PDFs) bleibt lokal, nicht ins Repo
+docs/reference/*.pdf

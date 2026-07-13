@@ -26,14 +26,25 @@ nur ausgewertet, kein Code übernommen).
 
 ## IDs und Formate
 
-- **clientId** (Pfadparameter, ADE + accounting-clients v2): Format
-  `Beraternummer-Mandantennummer`, Pattern `^[1-9]\d{3,6}-[1-9]\d{0,4}$`,
-  z. B. `455148-1` (Sandbox-Testmandant). NICHT mit der OAuth-Client-ID
-  verwechseln. (Die UUID-Mandanten-IDs aus dem AnythingMCP-Guide betreffen
-  accounting-documents, nicht ADE.)
+- **clientId hängt von der API-Familie ab** (häufigste Fehlerquelle):
+  - **Cloud (Accounting Data Exchange + accounting-clients v2):** Format
+    `Beraternummer-Mandantennummer`, Pattern `^[1-9]\d{3,6}-[1-9]\d{0,4}$`,
+    z. B. `455148-1` (Sandbox-Testmandant).
+  - **DATEVconnect/Desktop-Module:** `clientId` = **GUID** aus der
+    `clients`-Ressource des jeweiligen Moduls — **je Modul verschieden**, nicht
+    die Mandantennummer und nicht modulübergreifend wiederverwendbar
+    (bestätigt durch die Klardaten-MCP-Doku; siehe `reference/KLARDATEN-ANALYSE.md`).
+  - In beiden Fällen: NICHT mit der OAuth-Client-ID der App verwechseln.
+    (Die UUID-Mandanten-IDs aus dem AnythingMCP-Guide betreffen accounting-documents.)
 - **fiscalYearId**: Integer `JJJJMMTT` (= Wirtschaftsjahresbeginn),
   z. B. `20260101`. `GET /clients/{id}/fiscal-years` liefert die Liste als
   NDJSON-Zahlen.
+- **Payroll:** `employeeId` = nullgepolsterte Personalnummer (kein GUID); jeder
+  Payroll-Aufruf braucht zusätzlich `referenceDate` (yyyy-mm-dd).
+- **DMS:** Dokument-`id` = GUID, `number` = Integer; `structure_item`-ids und
+  `document_file_id` = Integer.
+- **Kontonummern** liegen im „DATEV technical format", abgeleitet aus der
+  `account_length` des Wirtschaftsjahres (relevant für führende Nullen/Länge).
 - Listen-Antworten der ADE sind **`application/x-ndjson`** (ein
   JSON-Objekt pro Zeile) — auch sums-and-balances und Job-Ergebnisse.
 

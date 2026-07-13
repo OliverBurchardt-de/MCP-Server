@@ -13,6 +13,7 @@ der Claude Fragen zu DATEV-Buchhaltungsdaten beantworten lässt — aus
 | **[docs/SANDBOX-REGISTRIERUNG.md](docs/SANDBOX-REGISTRIERUNG.md)** | Klick-für-Klick: App im DATEV-Entwicklerportal registrieren (Client ID/Secret).                                     |
 | **[docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md)**                     | Entwickler — was/warum/wie: Entscheidungen, Modul-Durchgang, OAuth- und Job-Ablauf, Erweiterungsleitfaden, Glossar. |
 | **[docs/DATEV-PORTAL-NOTIZEN.md](docs/DATEV-PORTAL-NOTIZEN.md)**   | Verifizierte API-/OAuth-Fakten als Referenz.                                                                        |
+| **[docs/reference/KLARDATEN-ANALYSE.md](docs/reference/KLARDATEN-ANALYSE.md)** | Analyse des Klardaten-MCP: Ressourcen-Landkarte für das DATEVconnect-Modul, ID-Formate.                 |
 | **[docs/ONBOARDING-PRODUKTION.md](docs/ONBOARDING-PRODUKTION.md)** | Checkliste für den Weg in den Echtbetrieb.                                                                          |
 
 ## Funktionsumfang

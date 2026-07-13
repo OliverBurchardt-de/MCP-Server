@@ -325,7 +325,12 @@ description, inputSchema}, handler)` registrieren und den Handler in `safe()`
   zweites Transport; Tools bleiben gleich.
 - Belege hochladen (`accounting-documents`) — erste schreibende Operation.
 - DATEVconnect-Desktop-Modul (Basic Auth, lokal im Kanzleinetz) für OPOS,
-  Stammdaten, DMS.
+  Stammdaten, DMS. **Vorlage:** die aus DATEV-Specs abgeleitete Ressourcen-
+  Landkarte in [reference/KLARDATEN-ANALYSE.md](reference/KLARDATEN-ANALYSE.md).
+  Wichtig: DATEVconnect ist **synchron/lokal** — dort ist **kein** Async-Job-
+  Muster nötig (das gilt nur für die Cloud-ADE). Ein generischer Resource-URI-
+  Ansatz (wie bei Klardaten) ist hier eine Option, unser aufgabenorientierter
+  Stil eine andere.
 - Weitere Cloud-Dienste (Lohn/Payroll, Tax) — Specs teils nur als Postman-Collection.
 
 Details zu den Nutzer-/Organisationsaufgaben stehen in
