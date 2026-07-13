@@ -26,6 +26,11 @@ Claude meldet sich mit Ihrem DATEV-Konto an und holt die Buchungsdaten
 direkt aus der DATEV-Cloud — ohne manuellen Export. Dafür ist einmalig
 die Registrierung einer „App" im DATEV-Entwicklerportal nötig (unten).
 
+> **Windows, Schritt für Schritt:** Eine ausführliche Klick-für-Klick-Anleitung
+> (Node.js installieren, Projekt bauen, Claude Desktop verbinden, erste
+> Sandbox-Anmeldung) steht in [docs/EINRICHTUNG-WINDOWS.md](docs/EINRICHTUNG-WINDOWS.md).
+> Die folgende Kurzfassung gilt sinngemäß für alle Systeme.
+
 ## Einrichtung in Claude Desktop (einmalig)
 
 1. Voraussetzung: Node.js ab Version 20 ist installiert (nodejs.org).
