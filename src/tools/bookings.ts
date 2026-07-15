@@ -10,6 +10,9 @@ import { z } from 'zod';
 import type { BookingFilter } from '../parser/types.js';
 import { datevStore } from '../store/memory.js';
 
+/** Obergrenze der zurückgegebenen Buchungen (Kontext-Schutz). */
+const MAX_RESULT_ROWS = 200;
+
 /** Eingabeschema: Konto, Zeitraum, Mindestbetrag und Volltext (alle optional). */
 export const listBookingsSchema = {
   account: z
@@ -41,11 +44,14 @@ const matchesFilter = (
     return false;
   }
 
-  if (filter.from && booking.bookingDate < filter.from) {
+  // Datumsgrenzen nur anwenden, wenn die Buchung überhaupt ein Datum hat —
+  // sonst würden datumslose Cloud-Buchungen (bookingDate '') bei gesetztem
+  // `from` still herausfallen (`'' < from`).
+  if (filter.from && booking.bookingDate && booking.bookingDate < filter.from) {
     return false;
   }
 
-  if (filter.to && booking.bookingDate > filter.to) {
+  if (filter.to && booking.bookingDate && booking.bookingDate > filter.to) {
     return false;
   }
 
@@ -81,22 +87,30 @@ const matchesFilter = (
  */
 export const listBookings = (filter: BookingFilter) => {
   const dataset = datevStore.get();
-  const items = dataset.bookings
+  const matched = dataset.bookings
     .filter((booking) => matchesFilter(filter, booking))
-    .sort((left, right) => left.bookingDate.localeCompare(right.bookingDate))
-    .map((booking) => ({
-      bookingDate: booking.bookingDate,
-      account: booking.account,
-      contraAccount: booking.contraAccount,
-      amount: booking.amount,
-      direction: booking.direction,
-      bookingText: booking.bookingText,
-      documentField1: booking.documentField1,
-      documentField2: booking.documentField2,
-    }));
+    .sort((left, right) => left.bookingDate.localeCompare(right.bookingDate));
+
+  const items = matched.slice(0, MAX_RESULT_ROWS).map((booking) => ({
+    bookingDate: booking.bookingDate,
+    account: booking.account,
+    contraAccount: booking.contraAccount,
+    amount: booking.amount,
+    direction: booking.direction,
+    bookingText: booking.bookingText,
+    documentField1: booking.documentField1,
+    documentField2: booking.documentField2,
+  }));
 
   return {
-    count: items.length,
+    count: matched.length,
+    angezeigt: items.length,
+    ...(matched.length > items.length
+      ? {
+          hinweis:
+            'Ausgabe gekürzt — bitte über Konto, Zeitraum, Mindestbetrag oder Suchbegriff eingrenzen.',
+        }
+      : {}),
     items,
   };
 };

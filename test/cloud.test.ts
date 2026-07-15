@@ -12,7 +12,11 @@ import { DatevHttpClient, parseNdjson } from '../src/datev/http.js';
 import { AccountPostingsJobRunner } from '../src/datev/jobs.js';
 import { buildCloudDataset, mapAccountPosting } from '../src/datev/mapper.js';
 import { accountMatches } from '../src/tools/balance.js';
+import { listBookings } from '../src/tools/bookings.js';
 import { CloudTools } from '../src/tools/cloud.js';
+import { loadDatevFile } from '../src/tools/load.js';
+import { getOpenItems } from '../src/tools/openItems.js';
+import { searchDocuments } from '../src/tools/search.js';
 import { datevStore } from '../src/store/memory.js';
 
 const makeConfig = (overrides: Partial<DatevConfig> = {}): DatevConfig => ({
@@ -578,5 +582,155 @@ describe('CloudTools.accountBalance', () => {
     const result = await cloud.accountBalance({ account: '1200' });
 
     expect(result.gefunden).toBe(false);
+  });
+});
+
+describe('Externe Review-Fixes', () => {
+  afterEach(() => {
+    datevStore.clear();
+  });
+
+  const loadDs = (
+    postings: Array<Record<string, unknown>>,
+    key = 'k',
+    accountLength = 4
+  ): void => {
+    const dataset = buildCloudDataset(
+      '455148-1',
+      'Testmandant',
+      20260101,
+      { accountLength, accountSystem: '03' },
+      postings
+    );
+    datevStore.set(dataset, key);
+  };
+
+  it('Fix 1: gibt beim Monatswert das Soll/Haben-Kennzeichen mit', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    const susa = JSON.stringify({
+      accountNumber: 8400,
+      caption: 'Erlöse',
+      balance: 5000,
+      balanceDebitCreditIdentifier: 'H',
+      sumsAndBalancesMonthValues: [
+        {
+          fiscalYearMonth: 3,
+          monthlyBalance: 1200,
+          monthlyBalanceDebitCreditIdentifier: 'H',
+        },
+      ],
+    });
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+      jsonResponse(susa)
+    );
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.getSumsAndBalances({
+      clientId: '455148-1',
+      fiscalYearId: 20230101,
+      month: 3,
+    });
+    const rows = result.salden as Array<Record<string, unknown>>;
+
+    expect(rows[0]?.monatssaldo).toBe(1200);
+    expect(rows[0]?.monatsSollHaben).toBe('H');
+  });
+
+  it('Fix 2: begrenzt list_bookings und search_documents auf 200', () => {
+    const many = Array.from({ length: 250 }, () => ({
+      accountNumber: 8400,
+      amountDebit: 1,
+      date: '2026-01-02',
+      postingDescription: 'Beleg',
+    }));
+    loadDs(many);
+
+    const bookings = listBookings({});
+    expect(bookings.count).toBe(250);
+    expect(bookings.angezeigt).toBe(200);
+    expect(bookings.items).toHaveLength(200);
+    expect(String(bookings.hinweis)).toContain('gekürzt');
+
+    const search = searchDocuments({ query: 'Beleg' });
+    expect(search.count).toBe(250);
+    expect(search.angezeigt).toBe(200);
+  });
+
+  it('Fix 3: erzeugt beide Personenkonto-Posten einer Umbuchung', () => {
+    loadDs(
+      [
+        {
+          accountNumber: 10000,
+          contraAccountNumber: 70000,
+          amountDebit: 100,
+          date: '2026-02-01',
+        },
+      ],
+      'k',
+      5
+    );
+
+    const result = getOpenItems({});
+    expect(result.count).toBe(2);
+    const debtor = result.items.find((item) => item.account === '10000');
+    const creditor = result.items.find((item) => item.account === '70000');
+    expect(debtor?.accountType).toBe('debtor');
+    expect(debtor?.amount).toBeGreaterThan(0);
+    expect(creditor?.accountType).toBe('creditor');
+    expect(creditor?.amount).toBeLessThan(0);
+  });
+
+  it('Fix 4: listet auch Wirtschaftsjahre jenseits der ersten 12', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    const years = Array.from(
+      { length: 14 },
+      (_, i) => (2024 - i) * 10000 + 101
+    );
+    const fetchMock = vi.fn(async (url: unknown, _init?: RequestInit) => {
+      const u = String(url);
+      if (/\/fiscal-years\/\d+/.test(u)) {
+        return jsonResponse({
+          yearBegin: '2024-01-01',
+          yearEnd: '2024-12-31',
+          accountLength: 4,
+          accountSystem: '03',
+        });
+      }
+      return jsonResponse(years.map(String).join('\n'));
+    });
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.listFiscalYears({ clientId: '455148-1' });
+    const wj = result.wirtschaftsjahre as Array<Record<string, unknown>>;
+
+    expect(wj).toHaveLength(14);
+    // Das 14. (älteste) Jahr ist gelistet, wenn auch ohne Detailfelder.
+    expect(wj[13]?.fiscalYearId).toBe(20110101);
+    expect(String(result.hinweis)).toContain('Details wurden nur');
+  });
+
+  it('Fix 5: meldet im Datei-Modus ein unbekanntes Konto als gefunden:false', async () => {
+    loadDatevFile(
+      { path: path.resolve('test/fixtures/sample.extf') },
+      path.resolve('test/fixtures')
+    );
+    const cloud = new CloudTools(makeConfig());
+
+    const result = await cloud.accountBalance({ account: '99999999' });
+    expect(result.gefunden).toBe(false);
+    expect(result.saldo).toBeUndefined();
+  });
+
+  it('Fix 7: datumslose Buchung bleibt bei gesetztem from-Filter erhalten', () => {
+    loadDs([
+      { accountNumber: 8400, amountDebit: 1, date: '2026-01-02' }, // vor from
+      { accountNumber: 8500, amountDebit: 2 }, // ohne Datum
+    ]);
+
+    const result = listBookings({ from: '2026-06-01' });
+    expect(result.count).toBe(1);
+    expect(result.items[0]?.account).toBe('8500');
   });
 });

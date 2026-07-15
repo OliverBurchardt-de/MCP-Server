@@ -33,36 +33,22 @@ export const getOpenItemsSchema = {
 };
 
 /**
- * Bestimmt das Personenkonto einer Buchung und den Betrag aus dessen Sicht.
+ * Bestimmt die Personenkonto-Posten einer Buchung (aus Sicht jedes betroffenen
+ * Personenkontos).
  *
  * @remarks
- * Steht das Personenkonto im Gegenkonto, dreht sich die Soll/Haben-Richtung
- * (die Buchung betrifft das Konto dann spiegelbildlich). Vorzeichenkonvention:
- * Debitor-Forderung positiv, Kreditor-Verbindlichkeit negativ.
+ * Eine Buchung kann **beide** Seiten auf Personenkonten haben (z. B. eine
+ * Debitoren-/Kreditoren-Umbuchung). Dann entstehen **zwei** Posten. Steht das
+ * Personenkonto im Gegenkonto, dreht sich die Soll/Haben-Richtung (die Buchung
+ * betrifft das Konto spiegelbildlich). Vorzeichenkonvention: Debitor-Forderung
+ * positiv, Kreditor-Verbindlichkeit negativ.
  */
-const toPersonPosting = (
-  booking: DatevBooking,
-  today: string
-): OpenItem | null => {
-  const primaryType = getPersonAccountType(booking.account);
-  const contraType = getPersonAccountType(booking.contraAccount);
-
-  let account: string;
-  let accountType: 'debtor' | 'creditor';
-  let direction: 'S' | 'H';
-  if (primaryType) {
-    account = booking.account;
-    accountType = primaryType;
-    direction = booking.direction;
-  } else if (contraType) {
-    account = booking.contraAccount;
-    accountType = contraType;
-    direction = booking.direction === 'S' ? 'H' : 'S';
-  } else {
-    return null;
-  }
-
-  return {
+const toPersonPostings = (booking: DatevBooking, today: string): OpenItem[] => {
+  const build = (
+    account: string,
+    accountType: 'debtor' | 'creditor',
+    direction: 'S' | 'H'
+  ): OpenItem => ({
     account,
     accountType,
     amount: direction === 'S' ? booking.amount : -booking.amount,
@@ -72,7 +58,25 @@ const toPersonPosting = (
     documentField1: booking.documentField1,
     documentField2: booking.documentField2,
     overdue: Boolean(booking.dueDate && booking.dueDate < today),
-  };
+  });
+
+  const postings: OpenItem[] = [];
+  const primaryType = getPersonAccountType(booking.account);
+  if (primaryType) {
+    postings.push(build(booking.account, primaryType, booking.direction));
+  }
+  const contraType = getPersonAccountType(booking.contraAccount);
+  if (contraType) {
+    // Gegenkonto: Richtung spiegelbildlich zur Hauptbuchung.
+    postings.push(
+      build(
+        booking.contraAccount,
+        contraType,
+        booking.direction === 'S' ? 'H' : 'S'
+      )
+    );
+  }
+  return postings;
 };
 
 /**
@@ -100,8 +104,7 @@ export const getOpenItems = ({
   const today = referenceDate ?? new Date().toISOString().slice(0, 10);
 
   const all = dataset.bookings
-    .map((booking) => toPersonPosting(booking, today))
-    .filter((item): item is OpenItem => item !== null)
+    .flatMap((booking) => toPersonPostings(booking, today))
     .filter((item) => (type ? item.accountType === type : true))
     .filter((item) => (overdueOnly ? item.overdue : true))
     .sort((left, right) => left.bookingDate.localeCompare(right.bookingDate));

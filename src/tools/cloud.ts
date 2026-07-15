@@ -229,8 +229,12 @@ export class CloudTools {
       `/clients/${clientSeg}/fiscal-years`
     );
 
-    const details = await Promise.all(
-      fiscalYearIds.slice(0, 12).map(async (fiscalYearId) => {
+    // Details (Beginn/Ende/Kontenrahmen) nur für die ersten Jahre anreichern —
+    // je Jahr ein zusätzlicher Aufruf. Die übrigen Jahre werden trotzdem
+    // aufgeführt (nur mit fiscalYearId), damit kein Jahr unauffindbar wird.
+    const DETAIL_LIMIT = 12;
+    const enriched = await Promise.all(
+      fiscalYearIds.slice(0, DETAIL_LIMIT).map(async (fiscalYearId) => {
         try {
           const detail = await this.http.getJson<FiscalYearDetails>(
             base,
@@ -252,11 +256,17 @@ export class CloudTools {
         }
       })
     );
+    const remaining = fiscalYearIds
+      .slice(DETAIL_LIMIT)
+      .map((fiscalYearId) => ({ fiscalYearId }));
+    const details = [...enriched, ...remaining];
 
     return {
       wirtschaftsjahre: details,
       hinweis:
-        'Die fiscalYearId für datev_load_from_cloud und datev_get_sums_and_balances verwenden.',
+        remaining.length > 0
+          ? `Die fiscalYearId für datev_load_from_cloud und datev_get_sums_and_balances verwenden. Details wurden nur für die ${DETAIL_LIMIT} neuesten Jahre geladen; die weiteren Jahre sind mit ihrer fiscalYearId gelistet.`
+          : 'Die fiscalYearId für datev_load_from_cloud und datev_get_sums_and_balances verwenden.',
     };
   }
 
@@ -376,12 +386,19 @@ export class CloudTools {
       ebWertSoll: entry.openingBalanceDebit,
       ebWertHaben: entry.openingBalanceCredit,
       ...(input.month !== undefined
-        ? {
-            monat: input.month,
-            monatssaldo: entry.sumsAndBalancesMonthValues?.find(
+        ? (() => {
+            const monthValue = entry.sumsAndBalancesMonthValues?.find(
               (value) => value.fiscalYearMonth === input.month
-            )?.monthlyBalance,
-          }
+            );
+            return {
+              monat: input.month,
+              monatssaldo: monthValue?.monthlyBalance,
+              // Vorzeichen-Kennzeichen des Monatswerts mitgeben (analog zum
+              // Jahreswert), sonst ist ein Habensaldo nicht von einem Sollsaldo
+              // unterscheidbar.
+              monatsSollHaben: monthValue?.monthlyBalanceDebitCreditIdentifier,
+            };
+          })()
         : {}),
     }));
 
@@ -419,6 +436,17 @@ export class CloudTools {
     // Verwechslung benachbarter Konten (z. B. Sachkonto 1200 vs. Debitor 12000).
     if (!dataset.filePath.startsWith(CLOUD_PREFIX)) {
       const datei = computeAccountBalance(dataset.bookings, input.account);
+      // Kein Treffer: kein irreführender Saldo 0, sondern klar „nicht gefunden".
+      // (Die Kontonummer muss exakt zur Schreibweise im Stapel passen — Kurzform
+      // 1200 vs. technisch 12000000.)
+      if (datei.bookingCount === 0) {
+        return {
+          konto: input.account,
+          gefunden: false,
+          hinweis:
+            'Kein Konto mit dieser Nummer im geladenen Buchungsstapel gefunden. Bitte die Kontonummer und ihre Schreibweise prüfen (Kurzform wie 1200 oder technisches Format wie 12000000); Überblick mit list_bookings.',
+        };
+      }
       return {
         konto: input.account,
         saldo: round2(datei.balance),
