@@ -819,6 +819,84 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
     ).toBe('creditor');
   });
 
+  it('deckt den gesamten Sachkontenlängen-Bereich 4–8 ab (Padding 4–0)', () => {
+    // Länge 6 → Padding 2, Länge 7 → Padding 1, Länge 8 → Padding 0.
+    expect(detectAccountPadding([12345600, 123456700])).toBe(2);
+    expect(detectAccountPadding([12345670, 123456780])).toBe(1);
+    expect(detectAccountPadding([12345678, 123456789])).toBe(0);
+
+    expect(datevAccountToDisplay(123456700, 2)).toBe('1234567'); // Länge 6
+    expect(datevAccountToDisplay(123456780, 1)).toBe('12345678'); // Länge 7
+    // Länge 8: kein Padding, Wert bleibt unverändert.
+    expect(datevAccountToDisplay(123456789, 0)).toBe('123456789');
+  });
+
+  it('erkennt Personenkonten auch bei Sachkontenlänge 6', () => {
+    // Debitor 1234567 (roh 123456700), Kreditor 7000000 (roh 700000000).
+    const dataset = buildCloudDataset(
+      '99999-1',
+      'Testmandant',
+      20250101,
+      { accountLength: 6, accountSystem: '03' },
+      [
+        {
+          accountNumber: 123456700,
+          contraAccountNumber: 12345600,
+          amountDebit: 100,
+          date: '2025-05-01',
+        },
+        {
+          accountNumber: 40000000,
+          contraAccountNumber: 700000000,
+          amountDebit: 50,
+          date: '2025-05-02',
+        },
+      ]
+    );
+    datevStore.set(dataset, 'l6');
+    expect(dataset.header.accountLength).toBe(6);
+
+    const result = getOpenItems({});
+    expect(
+      result.items.find((item) => item.account === '1234567')?.accountType
+    ).toBe('debtor');
+    expect(
+      result.items.find((item) => item.account === '7000000')?.accountType
+    ).toBe('creditor');
+  });
+
+  it('get_account_balance funktioniert bei Sachkontenlänge 8 (Padding 0)', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    const dataset = buildCloudDataset(
+      '99999-1',
+      'Testmandant',
+      20250101,
+      { accountLength: 8, accountSystem: '03' },
+      [{ accountNumber: 12345678, amountCredit: 1000, date: '2025-12-31' }]
+    );
+    datevStore.set(dataset, 'l8');
+    expect(dataset.header.accountLength).toBe(8);
+
+    const susa = JSON.stringify({
+      accountNumber: 12345678,
+      caption: 'Sachkonto lang',
+      balance: 1000,
+      balanceDebitCreditIdentifier: 'H',
+    });
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+      jsonResponse(susa)
+    );
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.accountBalance({ account: '12345678' });
+    expect(result.konto).toBe(12345678);
+    expect(result.saldo).toBe(-1000);
+    expect(
+      (result.verprobung as Record<string, unknown>).stimmtMitDatevUeberein
+    ).toBe(true);
+  });
+
   it('get_account_balance findet das Konto trotz technischer 8-Steller-SuSa', async () => {
     const config = makeConfig();
     storeValidTokens(config);

@@ -20,6 +20,7 @@ import { NotLoggedInError, TokenManager } from '../auth/token-manager.js';
 import {
   datevAccountToDisplay,
   detectAccountPadding,
+  paddingForAccountLength,
 } from '../datev/account.js';
 import { DatevError } from '../datev/errors.js';
 import { DatevHttpClient } from '../datev/http.js';
@@ -557,10 +558,11 @@ export class CloudTools {
     }
 
     // Der verbindliche Eintrag wird per EXAKTER Anzeigenummer gewählt: DATEVs
-    // Rohnummer (z. B. 12000000) wird über das aus den Daten ermittelte Padding
-    // auf die Anzeigeform zurückgerechnet und mit der Nutzereingabe verglichen.
-    // Das ist eindeutig — 1200 und Debitor 12000 fallen NICHT zusammen.
-    const padding = detectAccountPadding(items.map((c) => c.accountNumber));
+    // Rohnummer (z. B. 12000000) wird über das Padding (8 − Sachkontenlänge des
+    // aktiven Datensatzes) auf die Anzeigeform zurückgerechnet und mit der
+    // Nutzereingabe verglichen. Eindeutig — 1200 und Debitor 12000 fallen NICHT
+    // zusammen.
+    const padding = paddingForAccountLength(dataset.header.accountLength || 4);
     const query = input.account.trim();
     const entry = items.find(
       (candidate) =>

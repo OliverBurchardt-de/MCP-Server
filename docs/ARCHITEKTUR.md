@@ -140,21 +140,24 @@ DATEV-Saldo ab, gibt das Feld `verprobung.warnung` das explizit aus. Im
 **Technisches Kontonummern-Format (Sachkontenlänge-abhängig):** Die DATEV-Cloud
 liefert Kontonummern in Summen-/Saldenliste und Buchungssätzen **technisch** —
 rechts mit Nullen aufgefüllt. Die Zahl der angehängten Nullen ist
-**`8 − Sachkontenlänge`**, hängt also je Mandant von der Sachkontenlänge ab
-(verifiziert an zwei Mandanten):
+**`8 − Sachkontenlänge`**, hängt also je Mandant von der Sachkontenlänge ab. DATEV
+erlaubt Sachkontenlängen **4–8**, das Padding liegt entsprechend zwischen 4 (Länge 4)
+und **0 (Länge 8, keine Auffüllung)**. Sachkonten sind technisch stets 8-, Personen­konten
+stets 9-stellig (verifiziert an zwei Mandanten, Bereich 4–8 durch Tests abgedeckt):
 
 | Sachkontenlänge  | Padding    | Sachkonto          | Debitor              | Kreditor             |
 | ---------------- | ---------- | ------------------ | -------------------- | -------------------- |
 | 4 (455148)       | 4 (÷10000) | 1200 → `12000000`  | 10400 → `104000000`  | 70000 → `700000000`  |
 | 5 (Comtec 13540) | 3 (÷1000)  | 12000 → `12000000` | 100005 → `100005000` | 700000 → `700000000` |
 
-Da die Sachkontenlänge variiert, wird das Padding **nicht fest verdrahtet**, sondern
-**aus den Daten ermittelt** (`detectAccountPadding` in `src/datev/account.ts`: das
-Minimum der abschließenden Nullen über alle Konten = Padding, weil mindestens ein
-Konto nicht auf 0 endet). Die Rückrechnung (`datevAccountToDisplay`, ÷ 10^Padding)
-ist eindeutig und verwechslungsfrei. Angewandt an den Datengrenzen: im `mapper` für
-Buchungssätze (setzt zugleich `header.accountLength = 8 − Padding`) und in `cloud.ts`
-für die SuSa (Filter, Auswahl, Ausgabe). Die daraus folgende Sachkontenlänge steuert
+Das Padding wird **nicht fest verdrahtet**: primär aus DATEVs autoritativer
+Sachkontenlänge (`paddingForAccountLength`), ersatzweise **aus den Daten ermittelt**
+(`detectAccountPadding` in `src/datev/account.ts`: das Minimum der abschließenden
+Nullen über alle Konten = Padding, weil mindestens ein Konto nicht auf 0 endet). Die
+Rückrechnung (`datevAccountToDisplay`, ÷ 10^Padding) ist eindeutig und
+verwechslungsfrei. Angewandt an den Datengrenzen: im `mapper` für Buchungssätze
+(setzt zugleich `header.accountLength`) und in `cloud.ts` für die SuSa (Filter,
+Auswahl, Ausgabe). Die Sachkontenlänge steuert
 auch die Personenkonto-Erkennung in `get_open_items` (`accountTypeFrom`: Debitoren
 `1…`–`6…`, Kreditoren `7…`–`9…`, jeweils eine Stelle länger als Sachkonten). Dadurch
 arbeiten alle Analyse-Tools intern mit der kurzen Anzeigenummer, während die

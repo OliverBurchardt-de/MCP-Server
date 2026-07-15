@@ -79,6 +79,16 @@ export const accountLengthFromPadding = (padding: number): number =>
   8 - padding;
 
 /**
+ * Bestimmt das Padding aus der (autoritativen) Sachkontenlänge.
+ *
+ * @remarks DATEV erlaubt Sachkontenlängen 4–8; das Padding ist entsprechend
+ *   `8 − Sachkontenlänge` und liegt damit im Bereich 0 (Länge 8) bis 4 (Länge 4).
+ *   Werte außerhalb werden konservativ auf diesen Bereich geklemmt.
+ */
+export const paddingForAccountLength = (accountLength: number): number =>
+  Math.min(Math.max(8 - accountLength, 0), 4);
+
+/**
  * Rechnet eine **technische** DATEV-Kontonummer auf die Anzeigenummer zurück.
  *
  * @param technical - Rohnummer aus der DATEV-API (z. B. `12000000`).

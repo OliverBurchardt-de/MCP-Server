@@ -15,6 +15,7 @@ import {
   accountLengthFromPadding,
   datevAccountToDisplay,
   detectAccountPadding,
+  paddingForAccountLength,
 } from './account.js';
 import type { AccountPosting, FiscalYearDetails } from './types.js';
 
@@ -97,27 +98,31 @@ export const buildCloudDataset = (
   fiscalYear: FiscalYearDetails | undefined,
   postings: AccountPosting[]
 ): DatevDataset => {
-  // Padding (Auffüll-Nullen) der technischen Kontonummern aus den echten
-  // Buchungsdaten ermitteln — daraus folgt die Sachkontenlänge. Das ist
-  // zuverlässiger als das (optionale, manchmal fehlende) Metadatenfeld und
-  // stimmt automatisch für jede Sachkontenlänge (4 → Padding 4, 5 → Padding 3).
-  const padding =
-    postings.length > 0
-      ? detectAccountPadding(
-          postings.flatMap((posting) => [
-            posting.accountNumber,
-            posting.contraAccountNumber,
-          ])
-        )
-      : Math.max(0, 8 - (fiscalYear?.accountLength ?? 4));
+  // Sachkontenlänge bestimmt das Padding (8 − Länge). Primär die autoritative
+  // DATEV-Angabe nutzen (deckt den ganzen Bereich 4–8 deterministisch ab), sonst
+  // aus den echten Buchungsdaten ableiten (Minimum der abschließenden Nullen).
+  const metaLength = fiscalYear?.accountLength;
+  const accountLength =
+    metaLength !== undefined && metaLength >= 4 && metaLength <= 8
+      ? metaLength
+      : postings.length > 0
+        ? accountLengthFromPadding(
+            detectAccountPadding(
+              postings.flatMap((posting) => [
+                posting.accountNumber,
+                posting.contraAccountNumber,
+              ])
+            )
+          )
+        : 4;
+  const padding = paddingForAccountLength(accountLength);
 
   const header: DatevHeader = {
     advisorNumber: clientId.split('-')[0] ?? '',
     clientNumber: clientId.split('-')[1] ?? '',
     fiscalYearStart: isoDate(fiscalYear?.yearBegin) || String(fiscalYearId),
-    // Sachkontenlänge aus dem erkannten Padding (Personenkonto-Erkennung in
-    // get_open_items hängt daran).
-    accountLength: accountLengthFromPadding(padding),
+    // Personenkonto-Erkennung in get_open_items hängt an der Sachkontenlänge.
+    accountLength,
     accountFramework:
       fiscalYear?.accountSystem !== undefined
         ? `SKR${fiscalYear.accountSystem}`
