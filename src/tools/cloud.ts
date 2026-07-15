@@ -17,7 +17,10 @@ import { config as defaultConfig, type DatevConfig } from '../config.js';
 import type { FetchLike } from '../auth/oauth.js';
 import { getLoginState, startLoginFlow } from '../auth/loopback.js';
 import { NotLoggedInError, TokenManager } from '../auth/token-manager.js';
-import { datevAccountToDisplay } from '../datev/account.js';
+import {
+  datevAccountToDisplay,
+  detectAccountPadding,
+} from '../datev/account.js';
 import { DatevError } from '../datev/errors.js';
 import { DatevHttpClient } from '../datev/http.js';
 import { AccountPostingsJobRunner } from '../datev/jobs.js';
@@ -407,12 +410,14 @@ export class CloudTools {
       throw error;
     }
 
-    // DATEV liefert die Kontonummern technisch (Anzeigenummer + 4 Nullen). Filter
-    // und Ausgabe rechnen daher auf die Anzeigenummer zurück, sonst trifft z. B.
-    // accountFrom/accountTo (1000–1999) die 8-stelligen Rohnummern nie.
+    // DATEV liefert die Kontonummern technisch (Anzeigenummer + Auffüll-Nullen).
+    // Padding aus den Daten ermitteln und für Filter und Ausgabe auf die
+    // Anzeigenummer zurückrechnen, sonst trifft z. B. accountFrom/accountTo
+    // (1000–1999) die 8-stelligen Rohnummern nie.
+    const padding = detectAccountPadding(items.map((e) => e.accountNumber));
     const displayAccount = (entry: SumsAndBalancesEntry): number | undefined =>
       entry.accountNumber !== undefined
-        ? Number(datevAccountToDisplay(entry.accountNumber))
+        ? Number(datevAccountToDisplay(entry.accountNumber, padding))
         : undefined;
 
     const accountSet = input.accounts ? new Set(input.accounts) : undefined;
@@ -552,14 +557,15 @@ export class CloudTools {
     }
 
     // Der verbindliche Eintrag wird per EXAKTER Anzeigenummer gewählt: DATEVs
-    // Rohnummer (z. B. 12000000) wird auf die Anzeigeform (1200) zurückgerechnet
-    // und mit der Nutzereingabe verglichen. Das ist eindeutig — 1200 (→12000000)
-    // und Debitor 12000 (→120000000) fallen NICHT zusammen.
+    // Rohnummer (z. B. 12000000) wird über das aus den Daten ermittelte Padding
+    // auf die Anzeigeform zurückgerechnet und mit der Nutzereingabe verglichen.
+    // Das ist eindeutig — 1200 und Debitor 12000 fallen NICHT zusammen.
+    const padding = detectAccountPadding(items.map((c) => c.accountNumber));
     const query = input.account.trim();
     const entry = items.find(
       (candidate) =>
         candidate.accountNumber !== undefined &&
-        datevAccountToDisplay(candidate.accountNumber) === query
+        datevAccountToDisplay(candidate.accountNumber, padding) === query
     );
 
     if (!entry) {
@@ -590,7 +596,7 @@ export class CloudTools {
     return {
       konto:
         entry.accountNumber !== undefined
-          ? Number(datevAccountToDisplay(entry.accountNumber))
+          ? Number(datevAccountToDisplay(entry.accountNumber, padding))
           : entry.accountNumber,
       bezeichnung: entry.caption ?? null,
       saldo: round2(datevSaldo),

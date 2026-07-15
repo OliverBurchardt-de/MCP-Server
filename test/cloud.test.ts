@@ -7,7 +7,10 @@ import type { FetchLike } from '../src/auth/oauth.js';
 import { escapeHtml } from '../src/auth/loopback.js';
 import { FileTokenStore } from '../src/auth/token-store.js';
 import { NotLoggedInError, TokenManager } from '../src/auth/token-manager.js';
-import { datevAccountToDisplay } from '../src/datev/account.js';
+import {
+  datevAccountToDisplay,
+  detectAccountPadding,
+} from '../src/datev/account.js';
 import { datevErrorFromResponse } from '../src/datev/errors.js';
 import { DatevHttpClient, parseNdjson } from '../src/datev/http.js';
 import { AccountPostingsJobRunner } from '../src/datev/jobs.js';
@@ -422,7 +425,7 @@ describe('mapper', () => {
         accountLength: 4,
         accountSystem: '03',
       },
-      [{ accountNumber: 1200, amountDebit: 1, date: '2026-01-02' }]
+      [{ accountNumber: 12000000, amountDebit: 1, date: '2026-01-02' }]
     );
 
     expect(dataset.header.advisorNumber).toBe('455148');
@@ -430,6 +433,7 @@ describe('mapper', () => {
     expect(dataset.header.clientName).toBe('Testmandant');
     expect(dataset.header.accountFramework).toBe('SKR03');
     expect(dataset.header.dateFrom).toBe('2026-01-01');
+    expect(dataset.header.accountLength).toBe(4);
     expect(dataset.bookings).toHaveLength(1);
     expect(dataset.filePath).toBe('datev-cloud://455148-1/20260101');
   });
@@ -453,10 +457,11 @@ describe('accountMatches', () => {
 });
 
 describe('CloudTools.accountBalance', () => {
-  // Zwei SuSa-Konten als NDJSON; 1200 mit Habensaldo 70.836,64 (wie DATEV).
+  // Zwei SuSa-Konten als NDJSON in technischer Form (Sachkontenlänge 4 → 8-stellig);
+  // 1200 (roh 12000000) mit Habensaldo 70.836,64 (wie DATEV).
   const susaNdjson = [
     JSON.stringify({
-      accountNumber: 1200,
+      accountNumber: 12000000,
       caption: 'Bank',
       balance: 70836.64,
       balanceDebitCreditIdentifier: 'H',
@@ -465,7 +470,7 @@ describe('CloudTools.accountBalance', () => {
       openingBalanceCredit: 76285.93,
     }),
     JSON.stringify({
-      accountNumber: 1400,
+      accountNumber: 14000000,
       caption: 'Forderungen',
       balance: 170307.03,
       balanceDebitCreditIdentifier: 'S',
@@ -539,16 +544,17 @@ describe('CloudTools.accountBalance', () => {
     loadCloudDataset([
       { accountNumber: 12000000, amountCredit: 70836.64, date: '2023-12-31' },
     ]);
-    // Debitor 12000 steht ZUERST — eine tolerante Suche würde ihn liefern.
+    // Debitor 12000 (roh 120000000) steht ZUERST — eine tolerante Suche würde
+    // ihn liefern. Sachkonto 1200 ist roh 12000000. Beide sind eindeutig.
     const mixedSusa = [
       JSON.stringify({
-        accountNumber: 12000,
+        accountNumber: 120000000,
         caption: 'Debitor Alpha',
         balance: 500,
         balanceDebitCreditIdentifier: 'S',
       }),
       JSON.stringify({
-        accountNumber: 1200,
+        accountNumber: 12000000,
         caption: 'Bank',
         balance: 70836.64,
         balanceDebitCreditIdentifier: 'H',
@@ -568,9 +574,11 @@ describe('CloudTools.accountBalance', () => {
   it('reports not found rather than returning a padded neighbour', async () => {
     const config = makeConfig();
     storeValidTokens(config);
-    loadCloudDataset([]);
+    loadCloudDataset([
+      { accountNumber: 120000000, amountDebit: 500, date: '2023-05-01' },
+    ]);
     const onlyDebitor = JSON.stringify({
-      accountNumber: 12000,
+      accountNumber: 120000000,
       caption: 'Debitor Alpha',
       balance: 500,
       balanceDebitCreditIdentifier: 'S',
@@ -610,7 +618,7 @@ describe('Externe Review-Fixes', () => {
     const config = makeConfig();
     storeValidTokens(config);
     const susa = JSON.stringify({
-      accountNumber: 8400,
+      accountNumber: 84000000,
       caption: 'Erlöse',
       balance: 5000,
       balanceDebitCreditIdentifier: 'H',
@@ -640,7 +648,7 @@ describe('Externe Review-Fixes', () => {
 
   it('Fix 2: begrenzt list_bookings und search_documents auf 200', () => {
     const many = Array.from({ length: 250 }, () => ({
-      accountNumber: 8400,
+      accountNumber: 84000000,
       amountDebit: 1,
       date: '2026-01-02',
       postingDescription: 'Beleg',
@@ -659,18 +667,16 @@ describe('Externe Review-Fixes', () => {
   });
 
   it('Fix 3: erzeugt beide Personenkonto-Posten einer Umbuchung', () => {
-    loadDs(
-      [
-        {
-          accountNumber: 10000,
-          contraAccountNumber: 70000,
-          amountDebit: 100,
-          date: '2026-02-01',
-        },
-      ],
-      'k',
-      5
-    );
+    // Debitor 10000 (roh 100000000) und Kreditor 70000 (roh 700000000),
+    // Sachkontenlänge 4.
+    loadDs([
+      {
+        accountNumber: 100000000,
+        contraAccountNumber: 700000000,
+        amountDebit: 100,
+        date: '2026-02-01',
+      },
+    ]);
 
     const result = getOpenItems({});
     expect(result.count).toBe(2);
@@ -726,8 +732,8 @@ describe('Externe Review-Fixes', () => {
 
   it('Fix 7: datumslose Buchung bleibt bei gesetztem from-Filter erhalten', () => {
     loadDs([
-      { accountNumber: 8400, amountDebit: 1, date: '2026-01-02' }, // vor from
-      { accountNumber: 8500, amountDebit: 2 }, // ohne Datum
+      { accountNumber: 84000000, amountDebit: 1, date: '2026-01-02' }, // vor from
+      { accountNumber: 85000000, amountDebit: 2 }, // ohne Datum
     ]);
 
     const result = listBookings({ from: '2026-06-01' });
@@ -736,36 +742,81 @@ describe('Externe Review-Fixes', () => {
   });
 });
 
-describe('Technisches Kontonummern-Format (Anzeige + 4 Nullen)', () => {
+describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
   afterEach(() => {
     datevStore.clear();
   });
 
-  it('datevAccountToDisplay rechnet technische Rohnummern zurück', () => {
-    expect(datevAccountToDisplay(10000000)).toBe('1000'); // Kasse 1000
-    expect(datevAccountToDisplay(12000000)).toBe('1200'); // Sachkonto 1200
-    expect(datevAccountToDisplay('14000000')).toBe('1400'); // Sammelkonto
-    expect(datevAccountToDisplay(104000000)).toBe('10400'); // Debitor 10400
-    expect(datevAccountToDisplay(700000000)).toBe('70000'); // Kreditor 70000
+  it('detectAccountPadding erkennt das Padding bei Sachkontenlänge 4', () => {
+    // 84010000 = Sachkonto 8401 (endet nicht auf 0) verrät das Padding 4.
+    expect(detectAccountPadding([12000000, 104000000, 84010000])).toBe(4);
   });
 
-  it('datevAccountToDisplay lässt kurze Anzeigenummern unverändert', () => {
-    expect(datevAccountToDisplay('1200')).toBe('1200');
-    expect(datevAccountToDisplay('10400')).toBe('10400');
-    expect(datevAccountToDisplay('70000')).toBe('70000');
+  it('detectAccountPadding erkennt das Padding bei Sachkontenlänge 5 (Comtec)', () => {
+    // Debitor 100005 -> 100005000 (endet auf genau 3 Nullen) verrät Padding 3.
+    expect(detectAccountPadding([12000000, 100005000, 700000000])).toBe(3);
   });
 
-  it('mapper normalisiert technische Buchungs-Kontonummern auf die Anzeigeform', () => {
+  it('datevAccountToDisplay rechnet technische Rohnummern mit dem Padding zurück', () => {
+    // Sachkontenlänge 4 (Padding 4)
+    expect(datevAccountToDisplay(12000000, 4)).toBe('1200');
+    expect(datevAccountToDisplay(104000000, 4)).toBe('10400');
+    // Sachkontenlänge 5 (Padding 3) — dieselbe Rohnummer, andere Anzeige!
+    expect(datevAccountToDisplay(12000000, 3)).toBe('12000');
+    expect(datevAccountToDisplay(100005000, 3)).toBe('100005');
+    expect(datevAccountToDisplay(700000000, 3)).toBe('700000');
+    // Padding 0 lässt den Wert unverändert.
+    expect(datevAccountToDisplay('1200', 0)).toBe('1200');
+  });
+
+  it('mapper normalisiert technische Buchungs-Kontonummern (mit Padding)', () => {
     const booking = mapAccountPosting(
       {
         accountNumber: 104000000,
         contraAccountNumber: 12000000,
         amountDebit: 100,
       },
-      0
+      0,
+      4
     );
     expect(booking.account).toBe('10400');
     expect(booking.contraAccount).toBe('1200');
+  });
+
+  it('erkennt bei Sachkontenlänge 5 (Comtec) die Personenkonten korrekt', () => {
+    // Debitor 100005 (6-stellig) und Kreditor 700000 (6-stellig) — technisch mit
+    // Padding 3. Ein Sachkonto (84010) mit Nicht-Null-Ende verrät das Padding.
+    const dataset = buildCloudDataset(
+      '13540',
+      'Comtec GmbH',
+      20250101,
+      undefined,
+      [
+        {
+          accountNumber: 100005000,
+          contraAccountNumber: 84010000,
+          amountDebit: 500,
+          date: '2025-05-01',
+        },
+        {
+          accountNumber: 40000000,
+          contraAccountNumber: 700000000,
+          amountDebit: 300,
+          date: '2025-05-02',
+        },
+      ]
+    );
+    datevStore.set(dataset, '13540:20250101');
+    expect(dataset.header.accountLength).toBe(5);
+
+    const result = getOpenItems({});
+    expect(result.count).toBe(2);
+    expect(
+      result.items.find((item) => item.account === '100005')?.accountType
+    ).toBe('debtor');
+    expect(
+      result.items.find((item) => item.account === '700000')?.accountType
+    ).toBe('creditor');
   });
 
   it('get_account_balance findet das Konto trotz technischer 8-Steller-SuSa', async () => {

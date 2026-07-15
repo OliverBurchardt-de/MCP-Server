@@ -43,7 +43,11 @@ export const getOpenItemsSchema = {
  * betrifft das Konto spiegelbildlich). Vorzeichenkonvention: Debitor-Forderung
  * positiv, Kreditor-Verbindlichkeit negativ.
  */
-const toPersonPostings = (booking: DatevBooking, today: string): OpenItem[] => {
+const toPersonPostings = (
+  booking: DatevBooking,
+  today: string,
+  accountLength: number
+): OpenItem[] => {
   const build = (
     account: string,
     accountType: 'debtor' | 'creditor',
@@ -61,11 +65,11 @@ const toPersonPostings = (booking: DatevBooking, today: string): OpenItem[] => {
   });
 
   const postings: OpenItem[] = [];
-  const primaryType = getPersonAccountType(booking.account);
+  const primaryType = getPersonAccountType(booking.account, accountLength);
   if (primaryType) {
     postings.push(build(booking.account, primaryType, booking.direction));
   }
-  const contraType = getPersonAccountType(booking.contraAccount);
+  const contraType = getPersonAccountType(booking.contraAccount, accountLength);
   if (contraType) {
     // Gegenkonto: Richtung spiegelbildlich zur Hauptbuchung.
     postings.push(
@@ -102,9 +106,10 @@ export const getOpenItems = ({
 }) => {
   const dataset = datevStore.get();
   const today = referenceDate ?? new Date().toISOString().slice(0, 10);
+  const accountLength = dataset.header.accountLength || 4;
 
   const all = dataset.bookings
-    .flatMap((booking) => toPersonPostings(booking, today))
+    .flatMap((booking) => toPersonPostings(booking, today, accountLength))
     .filter((item) => (type ? item.accountType === type : true))
     .filter((item) => (overdueOnly ? item.overdue : true))
     .sort((left, right) => left.bookingDate.localeCompare(right.bookingDate));

@@ -3,37 +3,98 @@
  *
  * @remarks
  * DATEV liefert Kontonummern in den Rohdaten (Summen-/Saldenliste,
- * Buchungssätze) **technisch**: an die Anzeigenummer werden **4 Nullen**
- * angehängt (× 10000). Beispiele (verifiziert an der Sandbox, Sachkontenlänge 4):
+ * Buchungssätze) **technisch**: rechts mit Nullen aufgefüllt. Die Anzahl der
+ * angehängten Nullen hängt von der **Sachkontenlänge** ab — es sind
+ * `8 − Sachkontenlänge` Stellen. Verifiziert an zwei Mandanten:
  *
- * - Sachkonto 1200 → `12000000` (4-stellig + 4 Nullen = 8-stellig)
- * - Debitor 10400 → `104000000` (5-stellig + 4 Nullen = 9-stellig)
- * - Kreditor 70000 → `700000000`
+ * | Sachkontenlänge | Padding | Sachkonto 1200/12000 | Debitor | Kreditor |
+ * |-----------------|---------|----------------------|---------|----------|
+ * | 4 (455148)      | 4       | 1200 → `12000000`    | 10400 → `104000000` | 70000 → `700000000` |
+ * | 5 (Comtec 13540)| 3       | 12000 → `12000000`   | 100005 → `100005000` | 700000 → `700000000` |
  *
- * Weil die Auffüllung **immer** genau 4 Nullen sind, ist die Rückrechnung
- * (÷ 10000) eindeutig und verwechslungsfrei: 1200 → `12000000`, 12000 →
- * `120000000` ergeben unterschiedliche technische Nummern. Das ist der
- * entscheidende Unterschied zu einem naiven „Nullen abschneiden".
+ * Die Rückrechnung (÷ 10^Padding) ist eindeutig und verwechslungsfrei. Weil die
+ * Sachkontenlänge je Mandant variiert, wird das Padding NICHT fest verdrahtet,
+ * sondern **aus den Daten ermittelt** (siehe {@link detectAccountPadding}).
  */
+
+/** Zählt die abschließenden Nullen einer Ganzzahl-Zeichenkette. */
+const trailingZeros = (value: string): number => {
+  let count = 0;
+  for (
+    let index = value.length - 1;
+    index >= 0 && value[index] === '0';
+    index -= 1
+  ) {
+    count += 1;
+  }
+  return count;
+};
+
+/**
+ * Ermittelt die Zahl der rechts angehängten Auffüll-Nullen (Padding) aus einer
+ * Menge **technischer** DATEV-Kontonummern.
+ *
+ * @remarks
+ * Jede technische Nummer trägt mindestens `Padding` abschließende Nullen; da
+ * mindestens ein Konto eine Anzeigenummer hat, die NICHT auf 0 endet (z. B.
+ * Debitor 100005 → `100005000` mit genau 3 Null-Stellen), ist das **Minimum** der
+ * abschließenden Nullen genau das Padding. Deckelung auf 4, weil die kleinste
+ * DATEV-Sachkontenlänge 4 ist (Padding also höchstens 8 − 4 = 4). Ohne
+ * numerische Werte wird 0 (keine Auffüllung) angenommen.
+ *
+ * @param technicalNumbers - Rohnummern aus der DATEV-API (Sachkonten und/oder
+ *   Personenkonten desselben Mandanten).
+ * @returns Das erkannte Padding (0–4).
+ */
+export const detectAccountPadding = (
+  technicalNumbers: Array<string | number | undefined>
+): number => {
+  let minimum = Infinity;
+  for (const raw of technicalNumbers) {
+    if (raw === undefined) {
+      continue;
+    }
+    const value = String(raw).trim();
+    if (!/^\d+$/.test(value) || value === '0') {
+      continue;
+    }
+    const zeros = trailingZeros(value);
+    if (zeros < minimum) {
+      minimum = zeros;
+    }
+    if (minimum === 0) {
+      break;
+    }
+  }
+  return Number.isFinite(minimum) ? Math.min(minimum, 4) : 0;
+};
+
+/**
+ * Leitet die Sachkontenlänge aus dem erkannten Padding ab.
+ *
+ * @remarks Sachkonten sind technisch stets 8-stellig (mit führenden Nullen),
+ *   daher gilt `Sachkontenlänge = 8 − Padding`.
+ */
+export const accountLengthFromPadding = (padding: number): number =>
+  8 - padding;
 
 /**
  * Rechnet eine **technische** DATEV-Kontonummer auf die Anzeigenummer zurück.
  *
  * @param technical - Rohnummer aus der DATEV-API (z. B. `12000000`).
- * @returns Die Anzeigenummer als String (z. B. „1200"). Nicht-numerische Werte
- *   und bereits kurze Anzeigenummern (≤ 5 Stellen) bleiben unverändert.
- * @remarks Nur auf DATEV-**Rohnummern** anwenden — niemals auf bereits kurze
- *   Nutzereingaben, sonst würde z. B. „70000" fälschlich zu „7".
+ * @param padding - Anzahl der angehängten Nullen (aus {@link detectAccountPadding}).
+ * @returns Die Anzeigenummer als String (z. B. „1200" bzw. „12000"). Bei Padding
+ *   0 oder nicht-numerischen Werten bleibt der Wert unverändert.
+ * @remarks Nur auf DATEV-**Rohnummern** anwenden — nicht auf bereits kurze
+ *   Nutzereingaben.
  */
-export const datevAccountToDisplay = (technical: string | number): string => {
+export const datevAccountToDisplay = (
+  technical: string | number,
+  padding: number
+): string => {
   const value = String(technical).trim();
-  if (!/^\d+$/.test(value)) {
+  if (padding <= 0 || !/^\d+$/.test(value)) {
     return value;
   }
-  // Technische Nummern sind ≥ 8-stellig und enden auf mindestens 4 Nullen;
-  // Anzeigenummern sind höchstens 5-stellig und bleiben unverändert.
-  if (value.length > 5 && value.endsWith('0000')) {
-    return String(Number(value) / 10000);
-  }
-  return value;
+  return String(Math.round(Number(value) / 10 ** padding));
 };

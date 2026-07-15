@@ -68,25 +68,39 @@ export const parseAmount = (value: string): number => {
 };
 
 /**
- * Leitet aus der Kontonummer den Personenkonto-Typ ab.
+ * Leitet aus der (Anzeige-)Kontonummer den Personenkonto-Typ ab.
  *
  * @remarks
- * Konvention in SKR03/SKR04: Debitoren (Kunden) 10000–69999, Kreditoren
- * (Lieferanten) 70000–99999. Sachkonten (4-stellig) ergeben `undefined`.
+ * Personenkonten sind eine Stelle länger als Sachkonten (Sachkontenlänge + 1)
+ * und werden nach der führenden Ziffer unterschieden: 1–6 = Debitoren (Kunden),
+ * 7–9 = Kreditoren (Lieferanten). Die Grenzen hängen also von der
+ * **Sachkontenlänge** ab:
+ * - Länge 4: Debitoren 10000–69999, Kreditoren 70000–99999.
+ * - Länge 5: Debitoren 100000–699999, Kreditoren 700000–999999.
+ *
+ * Sachkonten (≤ Sachkontenlänge Stellen) ergeben `undefined`.
+ *
+ * @param account - Anzeige-Kontonummer.
+ * @param accountLength - Sachkontenlänge des Mandanten (Standard 4).
  */
 const accountTypeFrom = (
-  account: string
+  account: string,
+  accountLength = 4
 ): 'debtor' | 'creditor' | undefined => {
   const numeric = Number.parseInt(account, 10);
   if (Number.isNaN(numeric)) {
     return undefined;
   }
 
-  if (numeric >= 10000 && numeric <= 69999) {
+  const personLower = 10 ** accountLength; // erste Personenkontonummer
+  const creditorLower = 7 * 10 ** accountLength; // ab hier Kreditoren
+  const personUpper = 10 ** (accountLength + 1); // erste Nummer darüber
+
+  if (numeric >= personLower && numeric < creditorLower) {
     return 'debtor';
   }
 
-  if (numeric >= 70000 && numeric <= 99999) {
+  if (numeric >= creditorLower && numeric < personUpper) {
     return 'creditor';
   }
 
@@ -287,7 +301,7 @@ const mapBookings = (
         openItemFlag === 'ja' ||
         openItemFlag === 'true' ||
         openItemFlag === '1' ||
-        accountTypeFrom(account) !== undefined,
+        accountTypeFrom(account, header.accountLength) !== undefined,
       rowNumber: index + firstDataLine,
       raw: record,
     };
