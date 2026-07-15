@@ -133,13 +133,21 @@ Summen-/Saldenliste (`sums-and-balances`, identisch zum DATEV-Kontoblatt) und
 verprobt sie gegen eine deterministische Kontrollrechnung aus den geladenen
 Buchungen (`computeAccountBalance`). Grund: Der Saldo darf **nie** vom Sprachmodell
 freihändig aus tausenden Buchungen summiert werden (Rechenfehler). Der verbindliche
-SuSa-Eintrag wird per **exakter** Kontonummer gewählt — die SuSa mischt 4-stellige
-Sachkonten und 5-stellige Personenkonten, sodass eine tolerante Zuordnung `1200`
-fälschlich als Debitor `12000` ausgeben könnte. Der tolerante Abgleich der zwei
-Konto-Schreibweisen (Kurzform `1200` vs. technisch `12000000`, `accountMatches`)
-bleibt ausschließlich der Kontrollrechnung vorbehalten. Weicht die Kontrolle vom
+SuSa-Eintrag wird per **exakter Anzeigenummer** gewählt. Weicht die Kontrolle vom
 DATEV-Saldo ab, gibt das Feld `verprobung.warnung` das explizit aus. Im
 **Datei-Modus** (keine SuSa verfügbar) wird exakt aus dem Stapel gerechnet.
+
+**Technisches Kontonummern-Format:** Die DATEV-Cloud liefert Kontonummern in
+Summen-/Saldenliste und Buchungssätzen **technisch** — an die Anzeigenummer werden
+**4 Nullen** angehängt (Sachkonto `1200` → `12000000`, Debitor `10400` →
+`104000000`, Kreditor `70000` → `700000000`; verifiziert an der Sandbox). Da die
+Auffüllung immer genau 4 Stellen sind, ist die Rückrechnung (÷ 10000) eindeutig und
+verwechslungsfrei — `1200` und `12000` ergeben unterschiedliche Rohnummern
+(`12000000` vs. `120000000`). `datevAccountToDisplay` (`src/datev/account.ts`)
+kapselt diese Umrechnung; sie wird an den Datengrenzen angewandt: im `mapper` für
+Buchungssätze und in `cloud.ts` für die SuSa (Filter, Auswahl, Ausgabe). Dadurch
+arbeiten alle Analyse-Tools intern mit der kurzen Anzeigenummer, obwohl die
+Nutzerin/der Nutzer wie gewohnt `1200` eingibt.
 
 **Sicherheitsgrenzen (Verschwiegenheitspflicht, § 203 StGB):**
 

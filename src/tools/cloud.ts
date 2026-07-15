@@ -17,6 +17,7 @@ import { config as defaultConfig, type DatevConfig } from '../config.js';
 import type { FetchLike } from '../auth/oauth.js';
 import { getLoginState, startLoginFlow } from '../auth/loopback.js';
 import { NotLoggedInError, TokenManager } from '../auth/token-manager.js';
+import { datevAccountToDisplay } from '../datev/account.js';
 import { DatevError } from '../datev/errors.js';
 import { DatevHttpClient } from '../datev/http.js';
 import { AccountPostingsJobRunner } from '../datev/jobs.js';
@@ -406,9 +407,17 @@ export class CloudTools {
       throw error;
     }
 
+    // DATEV liefert die Kontonummern technisch (Anzeigenummer + 4 Nullen). Filter
+    // und Ausgabe rechnen daher auf die Anzeigenummer zurück, sonst trifft z. B.
+    // accountFrom/accountTo (1000–1999) die 8-stelligen Rohnummern nie.
+    const displayAccount = (entry: SumsAndBalancesEntry): number | undefined =>
+      entry.accountNumber !== undefined
+        ? Number(datevAccountToDisplay(entry.accountNumber))
+        : undefined;
+
     const accountSet = input.accounts ? new Set(input.accounts) : undefined;
     const filtered = items.filter((entry) => {
-      const account = entry.accountNumber ?? -1;
+      const account = displayAccount(entry) ?? -1;
       if (accountSet && !accountSet.has(account)) {
         return false;
       }
@@ -422,7 +431,7 @@ export class CloudTools {
     });
 
     const rows = filtered.slice(0, MAX_RESULT_ROWS).map((entry) => ({
-      konto: entry.accountNumber,
+      konto: displayAccount(entry),
       bezeichnung: entry.caption,
       saldo: entry.balance,
       sollHaben: entry.balanceDebitCreditIdentifier,
@@ -502,19 +511,15 @@ export class CloudTools {
       };
     }
 
-    // Cloud-Kontrollrechnung: toleranter Konto-Vergleich, da die Buchungen die
-    // technische Schreibweise (z. B. 12000000) nutzen; verbindlich bleibt der
-    // autoritative DATEV-Saldo aus der Summen-/Saldenliste weiter unten.
-    const stapel = computeAccountBalance(dataset.bookings, input.account, {
-      tolerantAccountMatch: true,
-    });
+    // Cloud-Kontrollrechnung: exakter Konto-Vergleich. Die Buchungen sind bereits
+    // auf die Anzeigenummer normalisiert (siehe mapper), daher trifft „1200"
+    // genau das Sachkonto 1200 und nicht den Debitor 12000. Verbindlich bleibt
+    // der autoritative DATEV-Saldo aus der Summen-/Saldenliste weiter unten.
+    const stapel = computeAccountBalance(dataset.bookings, input.account);
     const stapelOhneEB = computeAccountBalance(
       dataset.bookings,
       input.account,
-      {
-        tolerantAccountMatch: true,
-        excludeOpeningBalance: true,
-      }
+      { excludeOpeningBalance: true }
     );
 
     // Cloud: clientId + fiscalYearId aus datev-cloud://<clientId>/<fiscalYearId>.
@@ -546,16 +551,15 @@ export class CloudTools {
       throw error;
     }
 
-    // WICHTIG: Der verbindliche Eintrag wird per EXAKTER Kontonummer gewählt.
-    // Die SuSa mischt 4-stellige Sachkonten und 5-stellige Personenkonten — mit
-    // toleranter Zuordnung könnte „1200" fälschlich Debitor „12000" treffen und
-    // dessen Saldo autoritativ ausgeben. Die tolerante Zuordnung bleibt allein
-    // der Kontrollrechnung (stapel/stapelOhneEB) vorbehalten.
+    // Der verbindliche Eintrag wird per EXAKTER Anzeigenummer gewählt: DATEVs
+    // Rohnummer (z. B. 12000000) wird auf die Anzeigeform (1200) zurückgerechnet
+    // und mit der Nutzereingabe verglichen. Das ist eindeutig — 1200 (→12000000)
+    // und Debitor 12000 (→120000000) fallen NICHT zusammen.
     const query = input.account.trim();
     const entry = items.find(
       (candidate) =>
         candidate.accountNumber !== undefined &&
-        String(candidate.accountNumber).trim() === query
+        datevAccountToDisplay(candidate.accountNumber) === query
     );
 
     if (!entry) {
@@ -584,7 +588,10 @@ export class CloudTools {
       Math.abs(datevSaldo - stapelOhneEB.balance) <= toleranz;
 
     return {
-      konto: entry.accountNumber,
+      konto:
+        entry.accountNumber !== undefined
+          ? Number(datevAccountToDisplay(entry.accountNumber))
+          : entry.accountNumber,
       bezeichnung: entry.caption ?? null,
       saldo: round2(datevSaldo),
       sollHaben:

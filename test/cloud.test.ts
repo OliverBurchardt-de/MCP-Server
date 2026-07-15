@@ -7,6 +7,7 @@ import type { FetchLike } from '../src/auth/oauth.js';
 import { escapeHtml } from '../src/auth/loopback.js';
 import { FileTokenStore } from '../src/auth/token-store.js';
 import { NotLoggedInError, TokenManager } from '../src/auth/token-manager.js';
+import { datevAccountToDisplay } from '../src/datev/account.js';
 import { datevErrorFromResponse } from '../src/datev/errors.js';
 import { DatevHttpClient, parseNdjson } from '../src/datev/http.js';
 import { AccountPostingsJobRunner } from '../src/datev/jobs.js';
@@ -732,6 +733,144 @@ describe('Externe Review-Fixes', () => {
     const result = listBookings({ from: '2026-06-01' });
     expect(result.count).toBe(1);
     expect(result.items[0]?.account).toBe('8500');
+  });
+});
+
+describe('Technisches Kontonummern-Format (Anzeige + 4 Nullen)', () => {
+  afterEach(() => {
+    datevStore.clear();
+  });
+
+  it('datevAccountToDisplay rechnet technische Rohnummern zurück', () => {
+    expect(datevAccountToDisplay(10000000)).toBe('1000'); // Kasse 1000
+    expect(datevAccountToDisplay(12000000)).toBe('1200'); // Sachkonto 1200
+    expect(datevAccountToDisplay('14000000')).toBe('1400'); // Sammelkonto
+    expect(datevAccountToDisplay(104000000)).toBe('10400'); // Debitor 10400
+    expect(datevAccountToDisplay(700000000)).toBe('70000'); // Kreditor 70000
+  });
+
+  it('datevAccountToDisplay lässt kurze Anzeigenummern unverändert', () => {
+    expect(datevAccountToDisplay('1200')).toBe('1200');
+    expect(datevAccountToDisplay('10400')).toBe('10400');
+    expect(datevAccountToDisplay('70000')).toBe('70000');
+  });
+
+  it('mapper normalisiert technische Buchungs-Kontonummern auf die Anzeigeform', () => {
+    const booking = mapAccountPosting(
+      {
+        accountNumber: 104000000,
+        contraAccountNumber: 12000000,
+        amountDebit: 100,
+      },
+      0
+    );
+    expect(booking.account).toBe('10400');
+    expect(booking.contraAccount).toBe('1200');
+  });
+
+  it('get_account_balance findet das Konto trotz technischer 8-Steller-SuSa', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    const dataset = buildCloudDataset(
+      '455148-1',
+      'Testmandant',
+      20230101,
+      { accountLength: 4, accountSystem: '03' },
+      [{ accountNumber: 12000000, amountCredit: 70836.64, date: '2023-12-31' }]
+    );
+    datevStore.set(dataset, '455148-1:20230101');
+    const susaTechnisch = JSON.stringify({
+      accountNumber: 12000000,
+      caption: 'Aareal Bank',
+      balance: 70836.64,
+      balanceDebitCreditIdentifier: 'H',
+    });
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+      jsonResponse(susaTechnisch)
+    );
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.accountBalance({ account: '1200' });
+
+    expect(result.konto).toBe(1200);
+    expect(result.saldo).toBe(-70836.64);
+    expect(
+      (result.verprobung as Record<string, unknown>).stimmtMitDatevUeberein
+    ).toBe(true);
+  });
+
+  it('get_sums_and_balances filtert accountFrom/accountTo trotz technischer Nummern', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    const susa = [
+      JSON.stringify({
+        accountNumber: 10000000,
+        caption: 'Kasse',
+        balance: 100,
+        balanceDebitCreditIdentifier: 'S',
+      }),
+      JSON.stringify({
+        accountNumber: 12000000,
+        caption: 'Bank',
+        balance: 200,
+        balanceDebitCreditIdentifier: 'S',
+      }),
+      JSON.stringify({
+        accountNumber: 84000000,
+        caption: 'Erloese',
+        balance: 300,
+        balanceDebitCreditIdentifier: 'H',
+      }),
+    ].join('\n');
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+      jsonResponse(susa)
+    );
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.getSumsAndBalances({
+      clientId: '455148-1',
+      fiscalYearId: 20230101,
+      accountFrom: 1000,
+      accountTo: 1999,
+    });
+    const rows = result.salden as Array<Record<string, unknown>>;
+
+    expect(rows).toHaveLength(2); // 1000 und 1200, nicht 8400
+    expect(rows.map((r) => r.konto).sort()).toEqual([1000, 1200]);
+  });
+
+  it('get_open_items erkennt Personenkonten aus technischen 9-Steller-Buchungen', () => {
+    const dataset = buildCloudDataset(
+      '455148-1',
+      'Testmandant',
+      20230101,
+      { accountLength: 4, accountSystem: '03' },
+      [
+        {
+          accountNumber: 104000000,
+          contraAccountNumber: 84000000,
+          amountDebit: 500,
+          date: '2023-05-01',
+        },
+        {
+          accountNumber: 49800000,
+          contraAccountNumber: 700000000,
+          amountDebit: 300,
+          date: '2023-05-02',
+        },
+      ]
+    );
+    datevStore.set(dataset, 'k');
+
+    const result = getOpenItems({});
+
+    expect(result.count).toBe(2);
+    expect(
+      result.items.find((item) => item.account === '10400')?.accountType
+    ).toBe('debtor');
+    expect(
+      result.items.find((item) => item.account === '70000')?.accountType
+    ).toBe('creditor');
   });
 });
 

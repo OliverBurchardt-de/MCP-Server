@@ -11,6 +11,7 @@ import type {
   DatevDataset,
   DatevHeader,
 } from '../parser/types.js';
+import { datevAccountToDisplay } from './account.js';
 import type { AccountPosting, FiscalYearDetails } from './types.js';
 
 /** Kürzt einen ISO-Zeitstempel auf das reine Datum (`JJJJ-MM-TT`). */
@@ -41,11 +42,17 @@ export const mapAccountPosting = (
   return {
     bookingDate: isoDate(posting.date),
     dueDate: undefined,
+    // DATEV liefert Kontonummern technisch (Anzeigenummer + 4 Nullen). Wir
+    // normalisieren hier an der Grenze auf die Anzeigeform, damit alle
+    // Analyse-Tools (Saldo, offene Posten, Filter) mit „1200"/„10400" statt
+    // „12000000"/„104000000" arbeiten.
     account:
-      posting.accountNumber !== undefined ? String(posting.accountNumber) : '',
+      posting.accountNumber !== undefined
+        ? datevAccountToDisplay(posting.accountNumber)
+        : '',
     contraAccount:
       posting.contraAccountNumber !== undefined
-        ? String(posting.contraAccountNumber)
+        ? datevAccountToDisplay(posting.contraAccountNumber)
         : '',
     amount: debit || credit,
     direction: debit ? 'S' : 'H',
