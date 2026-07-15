@@ -37,13 +37,32 @@ const normalizeDate = (value: string): string | undefined => {
   return undefined;
 };
 
-/** Wandelt einen deutschen Betrag (`1.234,56`) in eine Zahl (`1234.56`). */
-const parseAmount = (value: string): number => {
-  const normalized = value.trim().replace(/\./g, '').replace(',', '.');
-  if (!normalized) {
+/**
+ * Wandelt einen deutschen Betrag (`1.234,56`) in eine Zahl (`1234.56`).
+ *
+ * @remarks
+ * Ein leerer Wert ergibt `0`. Ein **klar abweichend** formatierter Wert wird
+ * bewusst NICHT stillschweigend zu `0` — das würde einen (im Datei-Modus selbst
+ * gerechneten) Saldo unbemerkt verfälschen. Stattdessen wirft die Funktion, damit
+ * die fehlerhafte Zeile auffällt. Akzeptiert wird das deutsche Format mit
+ * optionalem Vorzeichen, Tausenderpunkten und einem Dezimalkomma.
+ *
+ * @throws Error - wenn der Wert kein interpretierbarer deutscher Betrag ist.
+ */
+export const parseAmount = (value: string): number => {
+  const trimmed = value.trim();
+  if (!trimmed) {
     return 0;
   }
 
+  const germanAmount = /^[+-]?\d{1,3}(\.\d{3})*(,\d+)?$|^[+-]?\d+(,\d+)?$/;
+  if (!germanAmount.test(trimmed)) {
+    throw new Error(
+      `Betrag im DATEV-Export nicht interpretierbar: "${value}". Bitte den Buchungsstapel prüfen.`
+    );
+  }
+
+  const normalized = trimmed.replace(/\./g, '').replace(',', '.');
   const amount = Number.parseFloat(normalized);
   return Number.isFinite(amount) ? amount : 0;
 };
@@ -163,7 +182,10 @@ const normalizeDocumentDate = (
 // liefern es auch als JJJJMMTT oder (selten) als TTMM ohne Jahr. Wir
 // unterscheiden anhand plausibler Jahreswerte, damit alle Varianten korrekt
 // nach ISO (JJJJ-MM-TT) landen. In der Praxis ist das Feld oft leer.
-const normalizeDueDate = (value: string, fiscalYearStart: string): string | undefined => {
+const normalizeDueDate = (
+  value: string,
+  fiscalYearStart: string
+): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) {
     return undefined;
@@ -230,7 +252,10 @@ const mapBookings = (
       'Gegenkonto (ohne BU-Schlüssel)',
       'Gegenkonto'
     );
-    const dueDate = normalizeDueDate(pick(record, 'Fälligkeit', 'Faelligkeit'), header.fiscalYearStart);
+    const dueDate = normalizeDueDate(
+      pick(record, 'Fälligkeit', 'Faelligkeit'),
+      header.fiscalYearStart
+    );
     const rawDate = pick(record, 'Belegdatum', 'Buchungsdatum', 'Datum');
     const bookingDate =
       normalizeDate(rawDate) ??

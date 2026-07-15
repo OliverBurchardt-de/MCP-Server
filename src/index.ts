@@ -16,6 +16,9 @@ const main = async (): Promise<void> => {
 };
 
 main().catch((error: unknown) => {
-  console.error('Failed to start DATEV MCP server', error);
+  // Nur die Meldung protokollieren (kein vollständiges Fehlerobjekt, das
+  // versehentlich Konfigurations-/Zugangsdaten enthalten könnte).
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Failed to start DATEV MCP server: ${message}`);
   process.exit(1);
 });

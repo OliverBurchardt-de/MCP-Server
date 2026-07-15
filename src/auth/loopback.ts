@@ -11,6 +11,7 @@
  * ({@link getLoginState}), weil MCP-Tools kurzlebig aufgerufen werden:
  * `datev_login` startet den Flow, ein späteres `datev_status` liest das Ergebnis.
  */
+import crypto from 'node:crypto';
 import http from 'node:http';
 import type { DatevConfig } from '../config.js';
 import {
@@ -45,10 +46,37 @@ const closeServer = (): void => {
   activeServer = undefined;
 };
 
+/**
+ * Maskiert HTML-Sonderzeichen, damit fremdgesteuerte Werte nicht als Markup
+ * interpretiert werden (Schutz vor reflektiertem XSS auf der Callback-Seite).
+ */
+export const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+/**
+ * Vergleicht zwei Zeichenketten in konstanter Zeit (gegen Timing-Angriffe).
+ *
+ * @remarks Für den `state`-Vergleich: unterschiedliche Längen sind sofort
+ *   ungleich; gleich lange werden über {@link crypto.timingSafeEqual} geprüft.
+ */
+const constantTimeEqual = (a: string, b: string): boolean => {
+  const bufferA = Buffer.from(a);
+  const bufferB = Buffer.from(b);
+  return (
+    bufferA.length === bufferB.length &&
+    crypto.timingSafeEqual(bufferA, bufferB)
+  );
+};
+
 /** Erzeugt eine schlichte HTML-Seite, die dem Nutzer im Browser angezeigt wird. */
 const htmlResponse = (title: string, body: string): string =>
-  `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${title}</title></head>` +
-  `<body style="font-family:sans-serif;max-width:40rem;margin:4rem auto"><h1>${title}</h1><p>${body}</p></body></html>`;
+  `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head>` +
+  `<body style="font-family:sans-serif;max-width:40rem;margin:4rem auto"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></body></html>`;
 
 /**
  * Startet den lokalen Callback-Server und liefert die DATEV-Login-URL.
@@ -117,7 +145,7 @@ export const startLoginFlow = (
 
     const code = url.searchParams.get('code');
     const returnedState = url.searchParams.get('state');
-    if (!code || returnedState !== state) {
+    if (!code || !constantTimeEqual(returnedState ?? '', state)) {
       currentState = {
         status: 'error',
         message:
@@ -156,7 +184,9 @@ export const startLoginFlow = (
     activeServer = undefined;
   });
 
-  server.listen(config.redirectPort);
+  // Nur auf der Loopback-Adresse lauschen — der Callback ist rein lokal; ein
+  // Binden auf alle Schnittstellen würde den Server unnötig im Netz exponieren.
+  server.listen(config.redirectPort, '127.0.0.1');
   server.unref();
   setTimeout(() => {
     if (currentState.status === 'waiting') {

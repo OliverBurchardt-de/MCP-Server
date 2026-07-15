@@ -51,17 +51,25 @@ export class FileTokenStore {
   }
 
   /**
-   * Schreibt die Tokens atomar-genug mit restriktiven Rechten.
+   * Schreibt die Tokens atomar mit restriktiven Rechten.
    *
    * @param tokens - Die zu speichernden Tokens.
-   * @remarks Verzeichnis wird mit 0700, die Datei mit 0600 angelegt, damit nur
-   *   der Eigentümer lesen/schreiben kann.
+   * @remarks Verzeichnis wird mit 0700 angelegt. Geschrieben wird zunächst in
+   *   eine temporäre Datei (0600), die anschließend über {@link fs.renameSync}
+   *   an ihren Platz gesetzt wird — so kann ein Abbruch mitten im Schreiben die
+   *   bestehende (gültige) Token-Datei nicht beschädigen und das langlebige
+   *   Refresh-Token geht nicht verloren. Abschließend werden die Rechte per
+   *   `chmod` auf 0600 erzwungen, falls die Zieldatei mit lockeren Rechten
+   *   vorbestand.
    */
   save(tokens: StoredTokens): void {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(this.filePath, JSON.stringify(tokens, null, 2), {
+    const tempPath = `${this.filePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(tokens, null, 2), {
       mode: 0o600,
     });
+    fs.renameSync(tempPath, this.filePath);
+    fs.chmodSync(this.filePath, 0o600);
   }
 
   /** Löscht die Token-Datei (z. B. beim Abmelden oder bei `invalid_grant`). */

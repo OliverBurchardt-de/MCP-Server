@@ -149,7 +149,9 @@ export const createServer = () => {
       description:
         'Liefert den Saldo eines Kontos. Bei Live-/Cloud-Daten kommt die verbindliche Zahl direkt aus DATEVs Summen-/Saldenliste (identisch zum DATEV-Kontoblatt) und wird gegen eine Kontrollrechnung aus den Buchungen verprobt; bei Exportdateien wird aus dem Stapel gerechnet. WICHTIG: Das Feld "saldo" wörtlich übernehmen — Salden NIE selbst aus einzelnen Buchungen aufsummieren.',
       inputSchema: {
-        account: z.string().min(1),
+        account: z
+          .string()
+          .regex(/^\d+$/, 'Kontonummer besteht nur aus Ziffern (z. B. 1200)'),
       },
     },
     async ({ account }) => safe(() => cloud.accountBalance({ account }))
@@ -164,7 +166,10 @@ export const createServer = () => {
       inputSchema: {
         overdueOnly: z.boolean().optional(),
         type: z.enum(['debtor', 'creditor']).optional(),
-        referenceDate: z.string().optional(),
+        referenceDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, 'Stichtag als ISO-Datum JJJJ-MM-TT')
+          .optional(),
         maxResults: z.number().int().min(1).max(200).optional(),
       },
     },
@@ -178,11 +183,20 @@ export const createServer = () => {
       description:
         'Filtert Buchungen des aktiven Datensatzes nach Konto, Zeitraum (ISO-Datum), Mindestbetrag und Volltext.',
       inputSchema: {
-        account: z.string().optional(),
-        from: z.string().optional(),
-        to: z.string().optional(),
+        account: z
+          .string()
+          .regex(/^\d+$/, 'Kontonummer besteht nur aus Ziffern')
+          .optional(),
+        from: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, 'Von-Datum als ISO-Datum JJJJ-MM-TT')
+          .optional(),
+        to: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, 'Bis-Datum als ISO-Datum JJJJ-MM-TT')
+          .optional(),
         minAmount: z.number().optional(),
-        text: z.string().optional(),
+        text: z.string().max(200).optional(),
       },
     },
     async (input) => safe(() => listBookings(input))

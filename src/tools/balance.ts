@@ -17,9 +17,11 @@ import { z } from 'zod';
 import { datevStore } from '../store/memory.js';
 import type { DatevBooking } from '../parser/types.js';
 
-/** Eingabeschema: die Kontonummer als Zeichenkette. */
+/** Eingabeschema: die Kontonummer als Ziffernfolge. */
 export const getAccountBalanceSchema = {
-  account: z.string().min(1),
+  account: z
+    .string()
+    .regex(/^\d+$/, 'Kontonummer besteht nur aus Ziffern (z. B. 1200)'),
 };
 
 /**
@@ -82,11 +84,15 @@ export interface AccountBalanceResult {
 export const computeAccountBalance = (
   bookings: DatevBooking[],
   account: string,
-  options: { excludeOpeningBalance?: boolean; tolerantAccountMatch?: boolean } = {}
+  options: {
+    excludeOpeningBalance?: boolean;
+    tolerantAccountMatch?: boolean;
+  } = {}
 ): AccountBalanceResult => {
   const matches = options.tolerantAccountMatch
     ? accountMatches
-    : (query: string, stored: string): boolean => query.trim() === stored.trim();
+    : (query: string, stored: string): boolean =>
+        query.trim() === stored.trim();
 
   let balance = 0;
   let bookingCount = 0;

@@ -4,6 +4,7 @@ import { createServer } from '../src/server.js';
 import { loadDatevFile } from '../src/tools/load.js';
 import { datevStore } from '../src/store/memory.js';
 
+const FIXTURES = path.resolve('test/fixtures');
 const fixturePath = path.resolve('test/fixtures/sample.extf');
 
 describe('server integration', () => {
@@ -14,7 +15,7 @@ describe('server integration', () => {
 
   it('supports loading and querying within the same process', () => {
     datevStore.clear();
-    const loaded = loadDatevFile({ path: fixturePath });
+    const loaded = loadDatevFile({ path: fixturePath }, FIXTURES);
 
     expect(loaded.bookingCount).toBe(22);
     expect(datevStore.get().bookings[0]?.documentField1).toBe('RE-1001');

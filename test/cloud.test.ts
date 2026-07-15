@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, type DatevConfig } from '../src/config.js';
 import type { FetchLike } from '../src/auth/oauth.js';
+import { escapeHtml } from '../src/auth/loopback.js';
 import { FileTokenStore } from '../src/auth/token-store.js';
 import { NotLoggedInError, TokenManager } from '../src/auth/token-manager.js';
 import { datevErrorFromResponse } from '../src/datev/errors.js';
@@ -64,6 +65,34 @@ describe('FileTokenStore', () => {
 
     store.clear();
     expect(store.load()).toBeUndefined();
+  });
+
+  it('writes atomically without leaving a temp file behind', () => {
+    const filePath = path.join(tempDir, 'tokens.json');
+    const store = new FileTokenStore(filePath);
+    store.save({ accessToken: 'a', refreshToken: 'r', expiresAt: 1 });
+    // Zweites Speichern (Rotation) darf die gültige Datei nicht beschädigen.
+    store.save({ accessToken: 'b', refreshToken: 'r2', expiresAt: 2 });
+
+    expect(store.load()).toMatchObject({
+      accessToken: 'b',
+      refreshToken: 'r2',
+    });
+    const leftovers = fs
+      .readdirSync(tempDir)
+      .filter((name) => name.includes('.tmp'));
+    expect(leftovers).toEqual([]);
+  });
+});
+
+describe('escapeHtml', () => {
+  it('neutralises HTML so reflected values cannot inject markup', () => {
+    expect(escapeHtml('<script>alert(1)</script>')).toBe(
+      '&lt;script&gt;alert(1)&lt;/script&gt;'
+    );
+    expect(escapeHtml('a & "b" \'c\'')).toBe(
+      'a &amp; &quot;b&quot; &#39;c&#39;'
+    );
   });
 });
 
@@ -150,6 +179,15 @@ describe('parseNdjson', () => {
     expect(parseNdjson('[{"a":1},{"a":2}]')).toEqual([{ a: 1 }, { a: 2 }]);
     expect(parseNdjson('  ')).toEqual([]);
   });
+
+  it('skips a corrupt line instead of failing the whole load', () => {
+    expect(parseNdjson('{"a":1}\n{broken\n{"a":2}')).toEqual([
+      { a: 1 },
+      { a: 2 },
+    ]);
+    // Ein beschädigtes JSON-Array ergibt eine leere Liste statt eines Wurfs.
+    expect(parseNdjson('[{"a":1},')).toEqual([]);
+  });
 });
 
 describe('DatevHttpClient', () => {
@@ -197,6 +235,40 @@ describe('DatevHttpClient', () => {
       client.getJson(config.accountingClientsBaseUrl, '/clients')
     ).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('clamps an excessive Retry-After to at most 30 seconds', async () => {
+    vi.useFakeTimers();
+    try {
+      const config = makeConfig();
+      storeValidTokens(config);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse('', {
+            status: 503,
+            headers: { 'retry-after': '86400' },
+          })
+        )
+        .mockResolvedValueOnce(jsonResponse({ ok: true }));
+      const client = new DatevHttpClient(
+        config,
+        new TokenManager(config, fetchMock as unknown as FetchLike),
+        fetchMock as unknown as FetchLike
+      );
+
+      const promise = client.getJson(
+        config.accountingClientsBaseUrl,
+        '/clients'
+      );
+      // 30 s reichen wegen des Deckels — ohne ihn müsste 86400 s gewartet werden.
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await expect(promise).resolves.toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -454,5 +526,57 @@ describe('CloudTools.accountBalance', () => {
     expect(result.saldo).toBe(-70836.64);
     expect(verprobung.stimmtMitDatevUeberein).toBe(false);
     expect(String(verprobung.warnung)).toContain('ACHTUNG');
+  });
+
+  it('selects the exact account, never a neighbouring padded one', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    loadCloudDataset([
+      { accountNumber: 12000000, amountCredit: 70836.64, date: '2023-12-31' },
+    ]);
+    // Debitor 12000 steht ZUERST — eine tolerante Suche würde ihn liefern.
+    const mixedSusa = [
+      JSON.stringify({
+        accountNumber: 12000,
+        caption: 'Debitor Alpha',
+        balance: 500,
+        balanceDebitCreditIdentifier: 'S',
+      }),
+      JSON.stringify({
+        accountNumber: 1200,
+        caption: 'Bank',
+        balance: 70836.64,
+        balanceDebitCreditIdentifier: 'H',
+      }),
+    ].join('\n');
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+      jsonResponse(mixedSusa)
+    );
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.accountBalance({ account: '1200' });
+
+    expect(result.konto).toBe(1200);
+    expect(result.saldo).toBe(-70836.64);
+  });
+
+  it('reports not found rather than returning a padded neighbour', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    loadCloudDataset([]);
+    const onlyDebitor = JSON.stringify({
+      accountNumber: 12000,
+      caption: 'Debitor Alpha',
+      balance: 500,
+      balanceDebitCreditIdentifier: 'S',
+    });
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+      jsonResponse(onlyDebitor)
+    );
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.accountBalance({ account: '1200' });
+
+    expect(result.gefunden).toBe(false);
   });
 });

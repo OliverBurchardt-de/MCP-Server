@@ -1,22 +1,25 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getAccountBalance } from '../src/tools/balance.js';
 import { listBookings } from '../src/tools/bookings.js';
-import { loadDatevFile } from '../src/tools/load.js';
+import { loadDatevFile, resolveImportPath } from '../src/tools/load.js';
 import { getOpenItems } from '../src/tools/openItems.js';
 import { searchDocuments } from '../src/tools/search.js';
 import { datevStore } from '../src/store/memory.js';
 
+const FIXTURES = path.resolve('test/fixtures');
 const fixturePath = path.resolve('test/fixtures/sample.extf');
 
 describe('DATEV tools', () => {
   beforeEach(() => {
     datevStore.clear();
-    loadDatevFile({ path: fixturePath });
+    loadDatevFile({ path: fixturePath }, FIXTURES);
   });
 
   it('loads the file and returns a summary', () => {
-    const result = loadDatevFile({ path: fixturePath });
+    const result = loadDatevFile({ path: fixturePath }, FIXTURES);
 
     expect(result.bookingCount).toBe(22);
     expect(result.accountFramework).toBe('SKR03');
@@ -61,7 +64,10 @@ describe('DATEV tools', () => {
 describe('get_open_items with personenkonto on the contra side', () => {
   beforeEach(() => {
     datevStore.clear();
-    loadDatevFile({ path: path.resolve('test/fixtures/sample-personenkonten.csv') });
+    loadDatevFile(
+      { path: path.resolve('test/fixtures/sample-personenkonten.csv') },
+      FIXTURES
+    );
   });
 
   it('recognises both a debtor (primary) and a creditor (contra) posting', () => {
@@ -83,5 +89,41 @@ describe('get_open_items with personenkonto on the contra side', () => {
 
     expect(result.count).toBe(1);
     expect(result.items[0]?.account).toBe('70013');
+  });
+});
+
+describe('resolveImportPath (Pfad-Confinement)', () => {
+  let baseDir: string;
+
+  beforeEach(() => {
+    baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'datev-import-'));
+    fs.writeFileSync(path.join(baseDir, 'export.csv'), 'x');
+  });
+
+  afterEach(() => {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it('accepts a file inside the import folder', () => {
+    const resolved = resolveImportPath('export.csv', baseDir);
+    expect(resolved).toBe(fs.realpathSync(path.join(baseDir, 'export.csv')));
+  });
+
+  it('rejects an absolute path outside the import folder', () => {
+    expect(() => resolveImportPath('/etc/passwd', baseDir)).toThrow(
+      /Zugriff verweigert/
+    );
+  });
+
+  it('rejects traversal out of the import folder', () => {
+    expect(() => resolveImportPath('../secret.csv', baseDir)).toThrow(
+      /Zugriff verweigert/
+    );
+  });
+
+  it('gives a generic error for a missing file', () => {
+    expect(() => resolveImportPath('missing.csv', baseDir)).toThrow(
+      /Datei nicht gefunden/
+    );
   });
 });

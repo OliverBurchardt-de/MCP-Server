@@ -25,7 +25,10 @@ const MAX_ITEMS = 200;
 export const getOpenItemsSchema = {
   overdueOnly: z.boolean().optional(),
   type: z.enum(['debtor', 'creditor']).optional(),
-  referenceDate: z.string().optional(),
+  referenceDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Stichtag als ISO-Datum JJJJ-MM-TT')
+    .optional(),
   maxResults: z.number().int().min(1).max(MAX_ITEMS).optional(),
 };
 
@@ -37,7 +40,10 @@ export const getOpenItemsSchema = {
  * (die Buchung betrifft das Konto dann spiegelbildlich). Vorzeichenkonvention:
  * Debitor-Forderung positiv, Kreditor-Verbindlichkeit negativ.
  */
-const toPersonPosting = (booking: DatevBooking, today: string): OpenItem | null => {
+const toPersonPosting = (
+  booking: DatevBooking,
+  today: string
+): OpenItem | null => {
   const primaryType = getPersonAccountType(booking.account);
   const contraType = getPersonAccountType(booking.contraAccount);
 

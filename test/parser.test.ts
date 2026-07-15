@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseDatevExtfFile } from '../src/parser/extf.js';
+import { parseAmount, parseDatevExtfFile } from '../src/parser/extf.js';
 
 const fixturePath = path.resolve('test/fixtures/sample.extf');
 
@@ -68,12 +68,33 @@ describe('parseDatevExtfFile with official EXTF header (Formatversion 700)', () 
   });
 });
 
+describe('parseAmount', () => {
+  it('parses valid German amounts', () => {
+    expect(parseAmount('1.234,56')).toBe(1234.56);
+    expect(parseAmount('89,50')).toBe(89.5);
+    expect(parseAmount('16295')).toBe(16295);
+    expect(parseAmount('-1.000,00')).toBe(-1000);
+    expect(parseAmount('')).toBe(0);
+  });
+
+  it('rejects clearly malformed amounts instead of silently returning 0', () => {
+    // Ein still zu 0 verbuchter Krummwert würde einen Saldo verfälschen.
+    expect(() => parseAmount('12.34.56')).toThrow(/nicht interpretierbar/);
+    expect(() => parseAmount('1,2,3')).toThrow(/nicht interpretierbar/);
+    expect(() => parseAmount('abc')).toThrow(/nicht interpretierbar/);
+  });
+});
+
 describe('parseDatevExtfFile Fälligkeit (TTMMJJJJ)', () => {
-  const personenkontenPath = path.resolve('test/fixtures/sample-personenkonten.csv');
+  const personenkontenPath = path.resolve(
+    'test/fixtures/sample-personenkonten.csv'
+  );
 
   it('parses a TTMMJJJJ due date into ISO', () => {
     const dataset = parseDatevExtfFile(personenkontenPath);
-    const debtorBooking = dataset.bookings.find((booking) => booking.account === '10000');
+    const debtorBooking = dataset.bookings.find(
+      (booking) => booking.account === '10000'
+    );
 
     // Fälligkeit 14072026 (TT.MM.JJJJ) -> ISO 2026-07-14 (nicht als JJJJMMTT missdeutet).
     expect(debtorBooking?.dueDate).toBe('2026-07-14');

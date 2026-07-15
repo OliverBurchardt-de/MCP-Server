@@ -40,6 +40,16 @@ export interface DatevConfig {
   accountingDataExchangeBaseUrl: string;
   /** Pfad der lokalen Token-Datei (pro Umgebung getrennt). */
   tokenStorePath: string;
+  /**
+   * Freigegebener Ordner, aus dem `load_datev_file` Dateien laden darf.
+   *
+   * @remarks
+   * Sicherheitsgrenze: Nur Dateien innerhalb dieses Ordners werden geladen.
+   * Das verhindert, dass eine (ggf. per Prompt-Injection eingeschleuste)
+   * Anweisung beliebige Dateien vom Rechner liest — etwa die Token-Datei oder
+   * den Export eines anderen Mandanten. Über `DATEV_IMPORT_DIR` anpassbar.
+   */
+  importBaseDir: string;
 }
 
 /**
@@ -104,6 +114,8 @@ export const loadConfig = (
     tokenStorePath:
       env.DATEV_TOKEN_STORE ??
       path.join(os.homedir(), '.datev-mcp', `tokens-${environment}.json`),
+    importBaseDir:
+      env.DATEV_IMPORT_DIR ?? path.join(os.homedir(), '.datev-mcp', 'import'),
   };
 };
 

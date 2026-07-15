@@ -79,16 +79,22 @@ export class AccountPostingsJobRunner {
     const base = this.config.accountingDataExchangeBaseUrl;
     const deadline = Date.now() + budgetMs;
 
+    // Dynamische Pfadsegmente URL-kodieren (Defense-in-depth; clientId/
+    // fiscalYearId sind bereits am Tool-Eingang validiert, jobId stammt aus der API).
+    const clientSeg = encodeURIComponent(clientId);
+    const fiscalYearSeg = encodeURIComponent(String(fiscalYearId));
+
     let jobId = this.pendingJobs.get(key);
     if (!jobId) {
       const response = await this.http.request(
         base,
-        `/clients/${clientId}/fiscal-years/${fiscalYearId}/account-postings`,
+        `/clients/${clientSeg}/fiscal-years/${fiscalYearSeg}/account-postings`,
         { method: 'POST' }
       );
       jobId = (JSON.parse(response.text) as { jobId: string }).jobId;
       this.pendingJobs.set(key, jobId);
     }
+    const jobSeg = encodeURIComponent(jobId);
 
     // Statusabfrage mit wachsender Wartezeit, bis der Job fertig ist oder das
     // Zeitbudget erschöpft ist.
@@ -96,7 +102,7 @@ export class AccountPostingsJobRunner {
     for (;;) {
       const state = await this.http.getJson<{ jobState: JobState }>(
         base,
-        `/clients/${clientId}/jobs/${jobId}/state`
+        `/clients/${clientSeg}/jobs/${jobSeg}/state`
       );
 
       if (state.jobState === 'COMPLETED') {
@@ -133,10 +139,17 @@ export class AccountPostingsJobRunner {
     do {
       const { items, headers } = await this.http.getNdjson<AccountPosting>(
         base,
-        `/clients/${clientId}/account-postings-jobs/${jobId}`,
+        `/clients/${clientSeg}/account-postings-jobs/${jobSeg}`,
         { page }
       );
-      postings.push(...items);
+      // Einzeln anhängen und beim Zeilen-Cap stoppen — kein `push(...items)`
+      // mit sehr großen Arrays (Stack-Risiko) und keine Übernahme über MAX_ROWS.
+      for (const item of items) {
+        if (postings.length >= MAX_ROWS) {
+          break;
+        }
+        postings.push(item);
+      }
       totalPages =
         Number.parseInt(headers.get('x-total-pages') ?? '1', 10) || 1;
       totalCount =

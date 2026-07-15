@@ -17,9 +17,18 @@ Deutsch, der Übersetzer holt die Zahlen aus DATEV.
 ## Zwei Wege zu den Daten
 
 **Weg 1 — Exportdatei (sofort nutzbar, keine Freischaltung nötig):**
-Sie exportieren in DATEV einen Buchungsstapel (DATEV-Format, EXTF-Datei)
-und sagen Claude: „Lade die DATEV-Datei C:\\Pfad\\zur\\Datei.csv". Danach
-beantwortet Claude alle Fragen zu diesem Buchungsstapel.
+Sie exportieren in DATEV einen Buchungsstapel (DATEV-Format, EXTF-Datei),
+legen die Datei in den **Import-Ordner** (siehe unten) und sagen Claude:
+„Lade die DATEV-Datei Dateiname.csv". Danach beantwortet Claude alle Fragen
+zu diesem Buchungsstapel.
+
+> **Sicherheit — Import-Ordner:** Aus Datenschutzgründen (Verschwiegenheits­pflicht)
+> lädt der Server ausschließlich Dateien aus einem festgelegten Ordner, nicht von
+> beliebigen Stellen der Festplatte. Standard ist `.datev-mcp/import` in Ihrem
+> Benutzerverzeichnis (Windows: `C:\Users\<Name>\.datev-mcp\import`). Legen Sie
+> diesen Ordner an und kopieren Sie Ihre Exportdateien hinein. Einen anderen Ordner
+> können Sie über die Umgebungsvariable `DATEV_IMPORT_DIR` in der Claude-Desktop-
+> Konfiguration festlegen (im `env`-Block, wie `DATEV_ENV`).
 
 **Weg 2 — Live aus der DATEV-Cloud (das eigentliche Ziel):**
 Claude meldet sich mit Ihrem DATEV-Konto an und holt die Buchungsdaten

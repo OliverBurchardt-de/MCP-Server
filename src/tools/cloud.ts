@@ -26,7 +26,7 @@ import type {
   SumsAndBalancesEntry,
 } from '../datev/types.js';
 import { datevStore } from '../store/memory.js';
-import { accountMatches, computeAccountBalance } from './balance.js';
+import { computeAccountBalance } from './balance.js';
 
 /** Obergrenze der in einer Antwort zurückgegebenen Zeilen (Kontext-Schutz). */
 const MAX_RESULT_ROWS = 200;
@@ -81,15 +81,20 @@ export const datevGetSumsAndBalancesSchema = {
   accountFrom: z
     .number()
     .int()
+    .min(0)
+    .max(99999999)
     .optional()
     .describe('Nur Konten ab dieser Kontonummer'),
   accountTo: z
     .number()
     .int()
+    .min(0)
+    .max(99999999)
     .optional()
     .describe('Nur Konten bis zu dieser Kontonummer'),
   accounts: z
-    .array(z.number().int())
+    .array(z.number().int().min(0).max(99999999))
+    .max(200)
     .optional()
     .describe('Nur genau diese Kontonummern'),
   month: z
@@ -216,9 +221,12 @@ export class CloudTools {
     clientId: string;
   }): Promise<Record<string, unknown>> {
     const base = this.config.accountingDataExchangeBaseUrl;
+    // Dynamische Pfadsegmente URL-kodieren (Defense-in-depth; clientId ist am
+    // Tool-Eingang bereits als Beraternr-Mandantennr validiert).
+    const clientSeg = encodeURIComponent(input.clientId);
     const { items: fiscalYearIds } = await this.http.getNdjson<number>(
       base,
-      `/clients/${input.clientId}/fiscal-years`
+      `/clients/${clientSeg}/fiscal-years`
     );
 
     const details = await Promise.all(
@@ -226,7 +234,7 @@ export class CloudTools {
         try {
           const detail = await this.http.getJson<FiscalYearDetails>(
             base,
-            `/clients/${input.clientId}/fiscal-years/${fiscalYearId}`
+            `/clients/${clientSeg}/fiscal-years/${encodeURIComponent(String(fiscalYearId))}`
           );
           return {
             fiscalYearId,
@@ -277,12 +285,14 @@ export class CloudTools {
       };
     }
 
+    const clientSeg = encodeURIComponent(input.clientId);
+    const fiscalYearSeg = encodeURIComponent(String(input.fiscalYearId));
     let clientName: string | undefined;
     let fiscalYear: FiscalYearDetails | undefined;
     try {
       const client = await this.http.getJson<CloudClient>(
         this.config.accountingClientsBaseUrl,
-        `/clients/${input.clientId}`
+        `/clients/${clientSeg}`
       );
       clientName = client.name;
     } catch {
@@ -291,7 +301,7 @@ export class CloudTools {
     try {
       fiscalYear = await this.http.getJson<FiscalYearDetails>(
         this.config.accountingDataExchangeBaseUrl,
-        `/clients/${input.clientId}/fiscal-years/${input.fiscalYearId}`
+        `/clients/${clientSeg}/fiscal-years/${fiscalYearSeg}`
       );
     } catch {
       // Details sind optional.
@@ -338,7 +348,7 @@ export class CloudTools {
   }): Promise<Record<string, unknown>> {
     const { items } = await this.http.getNdjson<SumsAndBalancesEntry>(
       this.config.accountingDataExchangeBaseUrl,
-      `/clients/${input.clientId}/fiscal-years/${input.fiscalYearId}/sums-and-balances`
+      `/clients/${encodeURIComponent(input.clientId)}/fiscal-years/${encodeURIComponent(String(input.fiscalYearId))}/sums-and-balances`
     );
 
     const accountSet = input.accounts ? new Set(input.accounts) : undefined;
@@ -425,10 +435,14 @@ export class CloudTools {
     const stapel = computeAccountBalance(dataset.bookings, input.account, {
       tolerantAccountMatch: true,
     });
-    const stapelOhneEB = computeAccountBalance(dataset.bookings, input.account, {
-      tolerantAccountMatch: true,
-      excludeOpeningBalance: true,
-    });
+    const stapelOhneEB = computeAccountBalance(
+      dataset.bookings,
+      input.account,
+      {
+        tolerantAccountMatch: true,
+        excludeOpeningBalance: true,
+      }
+    );
 
     // Cloud: clientId + fiscalYearId aus datev-cloud://<clientId>/<fiscalYearId>.
     const rest = dataset.filePath.slice(CLOUD_PREFIX.length);
@@ -438,13 +452,19 @@ export class CloudTools {
 
     const { items } = await this.http.getNdjson<SumsAndBalancesEntry>(
       this.config.accountingDataExchangeBaseUrl,
-      `/clients/${clientId}/fiscal-years/${fiscalYearId}/sums-and-balances`
+      `/clients/${encodeURIComponent(clientId)}/fiscal-years/${encodeURIComponent(String(fiscalYearId))}/sums-and-balances`
     );
 
+    // WICHTIG: Der verbindliche Eintrag wird per EXAKTER Kontonummer gewählt.
+    // Die SuSa mischt 4-stellige Sachkonten und 5-stellige Personenkonten — mit
+    // toleranter Zuordnung könnte „1200" fälschlich Debitor „12000" treffen und
+    // dessen Saldo autoritativ ausgeben. Die tolerante Zuordnung bleibt allein
+    // der Kontrollrechnung (stapel/stapelOhneEB) vorbehalten.
+    const query = input.account.trim();
     const entry = items.find(
       (candidate) =>
         candidate.accountNumber !== undefined &&
-        accountMatches(input.account, String(candidate.accountNumber))
+        String(candidate.accountNumber).trim() === query
     );
 
     if (!entry) {
@@ -452,7 +472,7 @@ export class CloudTools {
         konto: input.account,
         gefunden: false,
         hinweis:
-          'Konto in DATEVs Summen-/Saldenliste nicht gefunden. Kontonummer prüfen (Überblick mit datev_get_sums_and_balances).',
+          'Konto in DATEVs Summen-/Saldenliste nicht gefunden. Die Kontonummer muss exakt übereinstimmen (Kurzform wie in der Summen-/Saldenliste, z. B. 1200). Überblick mit datev_get_sums_and_balances.',
         kontrolleAusBuchungen: {
           saldo: round2(stapel.balance),
           anzahlBuchungen: stapel.bookingCount,

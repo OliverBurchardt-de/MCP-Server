@@ -91,9 +91,12 @@ export class DatevHttpClient {
           response.headers.get('retry-after') ?? '',
           10
         );
-        await sleep(
-          Number.isFinite(retryAfter) ? retryAfter * 1000 : 2000 * (attempt + 1)
-        );
+        // `Retry-After` deckeln: Ein (fehlerhafter oder bösartiger) sehr großer
+        // Wert dürfte den Aufruf nicht minuten-/tagelang blockieren.
+        const retryAfterMs = Number.isFinite(retryAfter)
+          ? Math.min(Math.max(retryAfter, 0), 30) * 1000
+          : 2000 * (attempt + 1);
+        await sleep(retryAfterMs);
         continue;
       }
 
@@ -153,12 +156,28 @@ export const parseNdjson = <T>(text: string): T[] => {
   }
 
   if (trimmed.startsWith('[')) {
-    return JSON.parse(trimmed) as T[];
+    // Ein klassisches JSON-Array — als Ganzes einlesen. Ist es beschädigt,
+    // liefern wir eine leere Liste statt den ganzen Aufruf abzubrechen.
+    try {
+      return JSON.parse(trimmed) as T[];
+    } catch {
+      return [];
+    }
   }
 
-  return trimmed
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as T);
+  // NDJSON: eine kaputte Zeile darf nicht den gesamten Ladevorgang scheitern
+  // lassen — fehlerhafte Zeilen werden übersprungen.
+  const items: T[] = [];
+  for (const line of trimmed.split('\n')) {
+    const candidate = line.trim();
+    if (!candidate) {
+      continue;
+    }
+    try {
+      items.push(JSON.parse(candidate) as T);
+    } catch {
+      // Beschädigte Zeile überspringen.
+    }
+  }
+  return items;
 };

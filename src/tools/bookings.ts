@@ -12,11 +12,20 @@ import { datevStore } from '../store/memory.js';
 
 /** Eingabeschema: Konto, Zeitraum, Mindestbetrag und Volltext (alle optional). */
 export const listBookingsSchema = {
-  account: z.string().optional(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  account: z
+    .string()
+    .regex(/^\d+$/, 'Kontonummer besteht nur aus Ziffern')
+    .optional(),
+  from: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Von-Datum als ISO-Datum JJJJ-MM-TT')
+    .optional(),
+  to: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Bis-Datum als ISO-Datum JJJJ-MM-TT')
+    .optional(),
   minAmount: z.number().optional(),
-  text: z.string().optional(),
+  text: z.string().max(200).optional(),
 };
 
 /** Prüft, ob eine Buchung alle gesetzten Filterkriterien erfüllt. */

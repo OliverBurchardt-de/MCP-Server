@@ -132,11 +132,31 @@ bezieht bei **Cloud-Daten** die verbindliche Zahl direkt aus DATEVs
 Summen-/Saldenliste (`sums-and-balances`, identisch zum DATEV-Kontoblatt) und
 verprobt sie gegen eine deterministische Kontrollrechnung aus den geladenen
 Buchungen (`computeAccountBalance`). Grund: Der Saldo darf **nie** vom Sprachmodell
-freihändig aus tausenden Buchungen summiert werden (Rechenfehler), und die zwei
-Konto-Schreibweisen (Kurzform `1200` in der SuSa vs. technisch `12000000` in den
-Buchungen) müssen zusammengeführt werden (`accountMatches`). Weicht die Kontrolle
-vom DATEV-Saldo ab, gibt das Feld `verprobung.warnung` das explizit aus. Im
+freihändig aus tausenden Buchungen summiert werden (Rechenfehler). Der verbindliche
+SuSa-Eintrag wird per **exakter** Kontonummer gewählt — die SuSa mischt 4-stellige
+Sachkonten und 5-stellige Personenkonten, sodass eine tolerante Zuordnung `1200`
+fälschlich als Debitor `12000` ausgeben könnte. Der tolerante Abgleich der zwei
+Konto-Schreibweisen (Kurzform `1200` vs. technisch `12000000`, `accountMatches`)
+bleibt ausschließlich der Kontrollrechnung vorbehalten. Weicht die Kontrolle vom
+DATEV-Saldo ab, gibt das Feld `verprobung.warnung` das explizit aus. Im
 **Datei-Modus** (keine SuSa verfügbar) wird exakt aus dem Stapel gerechnet.
+
+**Sicherheitsgrenzen (Verschwiegenheitspflicht, § 203 StGB):**
+
+- **Dateizugriff eingeschränkt:** `load_datev_file` lädt ausschließlich Dateien aus
+  einem freigegebenen Import-Ordner (`config.importBaseDir`, Standard
+  `~/.datev-mcp/import`, per `DATEV_IMPORT_DIR` änderbar). `resolveImportPath`
+  (in `src/tools/load.ts`) löst Pfade auf, prüft die Zugehörigkeit zum Ordner und
+  folgt keinen Symlinks nach außen — damit kann eine (ggf. per Prompt-Injection aus
+  Buchungsdaten eingeschleuste) Anweisung weder die Token-Datei noch den Export
+  eines anderen Mandanten lesen.
+- **Nur Lese-Werkzeuge:** Keines der Tools verändert, löscht oder lädt Daten nach
+  DATEV hoch; `datev_login` startet nur den lokalen PKCE-Flow.
+- **Tokens & Geheimnisse:** Tokens liegen mit `0600`/`0700` lokal, werden atomar
+  geschrieben und nie an das Modell zurückgegeben; das Client-Secret geht nur als
+  `Authorization: Basic`-Header an den DATEV-Token-Endpunkt. Der Login-Callback
+  lauscht ausschließlich auf `127.0.0.1` und maskiert alle in die Browser-Seite
+  eingesetzten Werte (kein reflektiertes XSS).
 
 ---
 
