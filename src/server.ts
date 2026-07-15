@@ -15,7 +15,7 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { getAccountBalance, getAccountBalanceSchema } from './tools/balance.js';
+import { getAccountBalanceSchema } from './tools/balance.js';
 import { listBookings, listBookingsSchema } from './tools/bookings.js';
 import { loadDatevFile, loadDatevFileSchema } from './tools/load.js';
 import { getOpenItems, getOpenItemsSchema } from './tools/openItems.js';
@@ -86,6 +86,13 @@ const HELP_TEXT = `# DATEV MCP-Server — Kurzanleitung
 
 ## Fachliche Hinweise
 - Soll/Haben: direction "S" = Soll, "H" = Haben. Salden werden als Soll minus Haben gerechnet.
+- SALDEN: Immer get_account_balance verwenden und dessen Feld "saldo" wörtlich übernehmen.
+  Salden NIEMALS selbst aus einzelnen Buchungen aufsummieren. Bei Cloud-Daten ist "saldo"
+  autoritativ aus DATEVs Summen-/Saldenliste (= DATEV-Kontoblatt); das Feld "verprobung"
+  zeigt, ob die Kontrollrechnung aus den Buchungen übereinstimmt. Bei einer "warnung" in der
+  Verprobung diese dem Nutzer mitteilen.
+- Kontonummern gibt es in Kurzform (z. B. 1200) und im technischen Format (z. B. 12000000);
+  get_account_balance erkennt beide.
 - Kontenrahmen SKR03/SKR04: Sachkonten 4-stellig; Personenkonten 5-stellig
   (Debitoren 10000-69999, Kreditoren 70000-99999).
 - Beträge sind in der Buchungswährung (Feld currency, meist EUR).
@@ -140,12 +147,12 @@ export const createServer = () => {
     {
       title: 'Kontosaldo berechnen',
       description:
-        'Berechnet den Saldo eines Kontos (Soll minus Haben) aus dem aktiven Datensatz, inkl. Anzahl Buchungen und letztem Buchungsdatum.',
+        'Liefert den Saldo eines Kontos. Bei Live-/Cloud-Daten kommt die verbindliche Zahl direkt aus DATEVs Summen-/Saldenliste (identisch zum DATEV-Kontoblatt) und wird gegen eine Kontrollrechnung aus den Buchungen verprobt; bei Exportdateien wird aus dem Stapel gerechnet. WICHTIG: Das Feld "saldo" wörtlich übernehmen — Salden NIE selbst aus einzelnen Buchungen aufsummieren.',
       inputSchema: {
         account: z.string().min(1),
       },
     },
-    async ({ account }) => safe(() => getAccountBalance({ account }))
+    async ({ account }) => safe(() => cloud.accountBalance({ account }))
   );
 
   server.registerTool(

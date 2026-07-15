@@ -26,9 +26,16 @@ import type {
   SumsAndBalancesEntry,
 } from '../datev/types.js';
 import { datevStore } from '../store/memory.js';
+import { accountMatches, computeAccountBalance } from './balance.js';
 
 /** Obergrenze der in einer Antwort zurückgegebenen Zeilen (Kontext-Schutz). */
 const MAX_RESULT_ROWS = 200;
+
+/** Rundet einen Geldbetrag kaufmännisch auf zwei Nachkommastellen. */
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+
+/** Präfix der Pseudo-URL, unter der Cloud-Datensätze im Store liegen. */
+const CLOUD_PREFIX = 'datev-cloud://';
 
 /** Eingabeschema für `datev_list_clients`. */
 
@@ -378,6 +385,120 @@ export class CloudTools {
           }
         : {}),
       salden: rows,
+    };
+  }
+
+  /**
+   * `get_account_balance` (Cloud): autoritativer Kontosaldo aus DATEV.
+   *
+   * @param input - Kontonummer (Kurzform „1200" oder technisch „12000000").
+   * @returns Für Cloud-Datensätze DATEVs eigenen Saldo (identisch zum
+   *   DATEV-Kontoblatt) samt Verprobung gegen eine deterministische
+   *   Kontrollrechnung aus den geladenen Buchungen; für Datei-Datensätze den aus
+   *   dem Stapel gerechneten Saldo.
+   * @remarks Der Saldo wird NIE im Sprachmodell aufsummiert — die verbindliche
+   *   Zahl kommt aus DATEVs Summen-/Saldenliste, die Kontrolle aus dem Code.
+   */
+  async accountBalance(input: {
+    account: string;
+  }): Promise<Record<string, unknown>> {
+    const dataset = datevStore.get();
+
+    // Datei-Datensatz: exakte Rechnung aus dem Stapel (verbindlich, da keine
+    // DATEV-Summenliste vorliegt). Exakter Konto-Vergleich verhindert die
+    // Verwechslung benachbarter Konten (z. B. Sachkonto 1200 vs. Debitor 12000).
+    if (!dataset.filePath.startsWith(CLOUD_PREFIX)) {
+      const datei = computeAccountBalance(dataset.bookings, input.account);
+      return {
+        konto: input.account,
+        saldo: round2(datei.balance),
+        sollHaben: datei.balance >= 0 ? 'S' : 'H',
+        anzahlBuchungen: datei.bookingCount,
+        letztesBuchungsdatum: datei.lastBookingDate,
+        quelle: 'aus geladenem Buchungsstapel gerechnet (Datei-Import)',
+      };
+    }
+
+    // Cloud-Kontrollrechnung: toleranter Konto-Vergleich, da die Buchungen die
+    // technische Schreibweise (z. B. 12000000) nutzen; verbindlich bleibt der
+    // autoritative DATEV-Saldo aus der Summen-/Saldenliste weiter unten.
+    const stapel = computeAccountBalance(dataset.bookings, input.account, {
+      tolerantAccountMatch: true,
+    });
+    const stapelOhneEB = computeAccountBalance(dataset.bookings, input.account, {
+      tolerantAccountMatch: true,
+      excludeOpeningBalance: true,
+    });
+
+    // Cloud: clientId + fiscalYearId aus datev-cloud://<clientId>/<fiscalYearId>.
+    const rest = dataset.filePath.slice(CLOUD_PREFIX.length);
+    const slash = rest.lastIndexOf('/');
+    const clientId = rest.slice(0, slash);
+    const fiscalYearId = Number.parseInt(rest.slice(slash + 1), 10);
+
+    const { items } = await this.http.getNdjson<SumsAndBalancesEntry>(
+      this.config.accountingDataExchangeBaseUrl,
+      `/clients/${clientId}/fiscal-years/${fiscalYearId}/sums-and-balances`
+    );
+
+    const entry = items.find(
+      (candidate) =>
+        candidate.accountNumber !== undefined &&
+        accountMatches(input.account, String(candidate.accountNumber))
+    );
+
+    if (!entry) {
+      return {
+        konto: input.account,
+        gefunden: false,
+        hinweis:
+          'Konto in DATEVs Summen-/Saldenliste nicht gefunden. Kontonummer prüfen (Überblick mit datev_get_sums_and_balances).',
+        kontrolleAusBuchungen: {
+          saldo: round2(stapel.balance),
+          anzahlBuchungen: stapel.bookingCount,
+        },
+      };
+    }
+
+    // DATEVs autoritativer Saldo mit Vorzeichen (Haben => negativ).
+    const datevBetrag = entry.balance ?? 0;
+    const datevSaldo =
+      entry.balanceDebitCreditIdentifier === 'H' ? -datevBetrag : datevBetrag;
+
+    // Verprobung: Die EB-Behandlung darf sich definitionsbedingt unterscheiden,
+    // daher gilt Übereinstimmung, wenn die Kontrolle MIT oder OHNE EB passt.
+    const toleranz = 0.01;
+    const stimmtMitDatevUeberein =
+      Math.abs(datevSaldo - stapel.balance) <= toleranz ||
+      Math.abs(datevSaldo - stapelOhneEB.balance) <= toleranz;
+
+    return {
+      konto: entry.accountNumber,
+      bezeichnung: entry.caption ?? null,
+      saldo: round2(datevSaldo),
+      sollHaben:
+        entry.balanceDebitCreditIdentifier ?? (datevSaldo >= 0 ? 'S' : 'H'),
+      quelle:
+        'DATEV Summen-/Saldenliste (autoritativ, entspricht dem DATEV-Kontoblatt)',
+      jahreswertSoll: entry.annualValueDebit,
+      jahreswertHaben: entry.annualValueCredit,
+      ebWertSoll: entry.openingBalanceDebit,
+      ebWertHaben: entry.openingBalanceCredit,
+      letztesBuchungsdatum: stapel.lastBookingDate,
+      verprobung: {
+        stimmtMitDatevUeberein,
+        kontrolleAusBuchungen: round2(stapel.balance),
+        kontrolleOhneEB: round2(stapelOhneEB.balance),
+        anzahlBuchungen: stapel.bookingCount,
+        ...(stimmtMitDatevUeberein
+          ? {}
+          : {
+              warnung:
+                'ACHTUNG: Kontrollrechnung aus den Buchungen weicht vom DATEV-Saldo ab. Verbindlich ist der DATEV-Saldo oben; Abweichung prüfen (z. B. unvollständig geladene Buchungen oder Konto-Verwechslung).',
+            }),
+      },
+      hinweis:
+        'Verbindlich ist das Feld "saldo" (DATEV). Diese Zahl wörtlich übernehmen und NICHT selbst aus Buchungen neu berechnen.',
     };
   }
 }

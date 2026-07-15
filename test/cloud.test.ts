@@ -10,6 +10,9 @@ import { datevErrorFromResponse } from '../src/datev/errors.js';
 import { DatevHttpClient, parseNdjson } from '../src/datev/http.js';
 import { AccountPostingsJobRunner } from '../src/datev/jobs.js';
 import { buildCloudDataset, mapAccountPosting } from '../src/datev/mapper.js';
+import { accountMatches } from '../src/tools/balance.js';
+import { CloudTools } from '../src/tools/cloud.js';
+import { datevStore } from '../src/store/memory.js';
 
 const makeConfig = (overrides: Partial<DatevConfig> = {}): DatevConfig => ({
   ...loadConfig({
@@ -352,5 +355,104 @@ describe('mapper', () => {
     expect(dataset.header.dateFrom).toBe('2026-01-01');
     expect(dataset.bookings).toHaveLength(1);
     expect(dataset.filePath).toBe('datev-cloud://455148-1/20260101');
+  });
+});
+
+describe('accountMatches', () => {
+  it('matches identical numbers and the technical (zero-padded) form', () => {
+    expect(accountMatches('1200', '1200')).toBe(true);
+    // Kurzform "1200" trifft die technische Form "12000000".
+    expect(accountMatches('1200', '12000000')).toBe(true);
+    expect(accountMatches('12000000', '1200')).toBe(true);
+    // Debitor 60105 -> technisch 60105000.
+    expect(accountMatches('60105', '60105000')).toBe(true);
+  });
+
+  it('does not match different accounts', () => {
+    expect(accountMatches('1200', '1230')).toBe(false);
+    expect(accountMatches('1200', '8400')).toBe(false);
+    expect(accountMatches('1200', '12010000')).toBe(false);
+  });
+});
+
+describe('CloudTools.accountBalance', () => {
+  // Zwei SuSa-Konten als NDJSON; 1200 mit Habensaldo 70.836,64 (wie DATEV).
+  const susaNdjson = [
+    JSON.stringify({
+      accountNumber: 1200,
+      caption: 'Bank',
+      balance: 70836.64,
+      balanceDebitCreditIdentifier: 'H',
+      annualValueDebit: 1567893.27,
+      annualValueCredit: 1638729.91,
+      openingBalanceCredit: 76285.93,
+    }),
+    JSON.stringify({
+      accountNumber: 1400,
+      caption: 'Forderungen',
+      balance: 170307.03,
+      balanceDebitCreditIdentifier: 'S',
+    }),
+  ].join('\n');
+
+  afterEach(() => {
+    datevStore.clear();
+  });
+
+  const loadCloudDataset = (postings: Array<Record<string, unknown>>): void => {
+    const dataset = buildCloudDataset(
+      '455148-1',
+      'Testmandant',
+      20230101,
+      { accountLength: 4, accountSystem: '03' },
+      postings
+    );
+    datevStore.set(dataset, '455148-1:20230101');
+  };
+
+  it('returns DATEVs authoritative balance and confirms the reconciliation', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    // Buchung, die den DATEV-Saldo exakt nachbildet (technische Kontonummer).
+    loadCloudDataset([
+      { accountNumber: 12000000, amountCredit: 70836.64, date: '2023-12-31' },
+    ]);
+
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+      jsonResponse(susaNdjson)
+    );
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.accountBalance({ account: '1200' });
+
+    expect(result.konto).toBe(1200);
+    expect(result.saldo).toBe(-70836.64);
+    expect(result.sollHaben).toBe('H');
+    expect(String(result.quelle)).toContain('autoritativ');
+    expect(
+      (result.verprobung as Record<string, unknown>).stimmtMitDatevUeberein
+    ).toBe(true);
+  });
+
+  it('flags a warning when the postings-based control differs grossly', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    // Absichtlich falsche Buchungssumme -> Verprobung muss anschlagen.
+    loadCloudDataset([
+      { accountNumber: 12000000, amountCredit: 1025389.28, date: '2023-12-31' },
+    ]);
+
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+      jsonResponse(susaNdjson)
+    );
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.accountBalance({ account: '1200' });
+    const verprobung = result.verprobung as Record<string, unknown>;
+
+    // Verbindlich bleibt DATEVs Saldo; die Kontrolle weicht ab und warnt.
+    expect(result.saldo).toBe(-70836.64);
+    expect(verprobung.stimmtMitDatevUeberein).toBe(false);
+    expect(String(verprobung.warnung)).toContain('ACHTUNG');
   });
 });

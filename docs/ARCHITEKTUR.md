@@ -127,6 +127,17 @@ gemappt werden (`datev/mapper.ts`) — es entsteht immer ein `DatevDataset` mit
 `get_open_items`, `list_bookings`, `search_documents` und implizit `load`) arbeiten
 ausschließlich auf diesem Modell und sind damit **quellenunabhängig**.
 
+**Ausnahme Kontosaldo (Verlässlichkeit vor Bequemlichkeit):** `get_account_balance`
+bezieht bei **Cloud-Daten** die verbindliche Zahl direkt aus DATEVs
+Summen-/Saldenliste (`sums-and-balances`, identisch zum DATEV-Kontoblatt) und
+verprobt sie gegen eine deterministische Kontrollrechnung aus den geladenen
+Buchungen (`computeAccountBalance`). Grund: Der Saldo darf **nie** vom Sprachmodell
+freihändig aus tausenden Buchungen summiert werden (Rechenfehler), und die zwei
+Konto-Schreibweisen (Kurzform `1200` in der SuSa vs. technisch `12000000` in den
+Buchungen) müssen zusammengeführt werden (`accountMatches`). Weicht die Kontrolle
+vom DATEV-Saldo ab, gibt das Feld `verprobung.warnung` das explizit aus. Im
+**Datei-Modus** (keine SuSa verfügbar) wird exakt aus dem Stapel gerechnet.
+
 ---
 
 ## 4. Modul-für-Modul
