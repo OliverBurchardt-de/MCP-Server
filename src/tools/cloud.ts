@@ -17,6 +17,7 @@ import { config as defaultConfig, type DatevConfig } from '../config.js';
 import type { FetchLike } from '../auth/oauth.js';
 import { getLoginState, startLoginFlow } from '../auth/loopback.js';
 import { NotLoggedInError, TokenManager } from '../auth/token-manager.js';
+import { DatevError } from '../datev/errors.js';
 import { DatevHttpClient } from '../datev/http.js';
 import { AccountPostingsJobRunner } from '../datev/jobs.js';
 import { buildCloudDataset } from '../datev/mapper.js';
@@ -36,6 +37,39 @@ const round2 = (value: number): number => Math.round(value * 100) / 100;
 
 /** Präfix der Pseudo-URL, unter der Cloud-Datensätze im Store liegen. */
 const CLOUD_PREFIX = 'datev-cloud://';
+
+/**
+ * Erkennt eine Zeitüberschreitung/einen Abbruch beim DATEV-Abruf.
+ *
+ * @remarks
+ * Zwei Quellen: (1) unser client-seitiges Zeitlimit (`AbortSignal.timeout` →
+ * `TimeoutError`/`AbortError`) und (2) ein Gateway-Timeout von DATEV selbst
+ * (`DatevError` mit Status 504/408). Beides bedeutet praktisch: „DATEV hat zu
+ * lange gebraucht" — typisch, wenn die Summen-/Saldenliste erst aufbereitet
+ * werden muss.
+ */
+const isTimeoutError = (error: unknown): boolean => {
+  if (error instanceof DatevError) {
+    return error.status === 504 || error.status === 408;
+  }
+  return (
+    error instanceof Error &&
+    (error.name === 'TimeoutError' ||
+      error.name === 'AbortError' ||
+      /timeout|timed out|aborted/i.test(error.message))
+  );
+};
+
+/**
+ * Handlungsleitender Hinweis, wenn die Summen-/Saldenliste nicht rechtzeitig
+ * kommt: über den Async-Job-Weg (`datev_load_from_cloud`) an dieselben Daten.
+ */
+const SUSA_TIMEOUT_HINWEIS =
+  'Die Summen-/Saldenliste kam von DATEV nicht rechtzeitig zurück (Zeitüberschreitung). ' +
+  'Das passiert, wenn DATEV die Auswertung erst aufbereiten muss. Bitte stattdessen zuerst die ' +
+  'Buchungen laden (datev_load_from_cloud für denselben Mandanten und dasselbe Wirtschaftsjahr; ' +
+  'bei Status "in_arbeit" nach etwa 30 Sekunden erneut) und die Frage anschließend mit ' +
+  'get_account_balance bzw. list_bookings beantworten.';
 
 /** Eingabeschema für `datev_list_clients`. */
 
@@ -356,10 +390,21 @@ export class CloudTools {
     accounts?: number[];
     month?: number;
   }): Promise<Record<string, unknown>> {
-    const { items } = await this.http.getNdjson<SumsAndBalancesEntry>(
-      this.config.accountingDataExchangeBaseUrl,
-      `/clients/${encodeURIComponent(input.clientId)}/fiscal-years/${encodeURIComponent(String(input.fiscalYearId))}/sums-and-balances`
-    );
+    let items: SumsAndBalancesEntry[];
+    try {
+      ({ items } = await this.http.getNdjson<SumsAndBalancesEntry>(
+        this.config.accountingDataExchangeBaseUrl,
+        `/clients/${encodeURIComponent(input.clientId)}/fiscal-years/${encodeURIComponent(String(input.fiscalYearId))}/sums-and-balances`
+      ));
+    } catch (error) {
+      // Zeitüberschreitung: keine kryptische Fehlermeldung, sondern der Weg über
+      // den Async-Job zu denselben Daten. Andere Fehler (401/403 …) unverändert
+      // durchreichen, damit ihre spezifische Anleitung erhalten bleibt.
+      if (isTimeoutError(error)) {
+        return { status: 'zeitüberschreitung', hinweis: SUSA_TIMEOUT_HINWEIS };
+      }
+      throw error;
+    }
 
     const accountSet = input.accounts ? new Set(input.accounts) : undefined;
     const filtered = items.filter((entry) => {
@@ -478,10 +523,28 @@ export class CloudTools {
     const clientId = rest.slice(0, slash);
     const fiscalYearId = Number.parseInt(rest.slice(slash + 1), 10);
 
-    const { items } = await this.http.getNdjson<SumsAndBalancesEntry>(
-      this.config.accountingDataExchangeBaseUrl,
-      `/clients/${encodeURIComponent(clientId)}/fiscal-years/${encodeURIComponent(String(fiscalYearId))}/sums-and-balances`
-    );
+    let items: SumsAndBalancesEntry[];
+    try {
+      ({ items } = await this.http.getNdjson<SumsAndBalancesEntry>(
+        this.config.accountingDataExchangeBaseUrl,
+        `/clients/${encodeURIComponent(clientId)}/fiscal-years/${encodeURIComponent(String(fiscalYearId))}/sums-and-balances`
+      ));
+    } catch (error) {
+      // Kommt DATEVs autoritative Zahl nicht rechtzeitig, geben wir bewusst
+      // KEINEN `saldo` aus (nichts Verbindliches vorhanden), aber die
+      // deterministische Kontrollrechnung als klar gekennzeichnete Nebeninfo
+      // plus den Hinweis, es über den Async-Job erneut zu versuchen.
+      if (isTimeoutError(error)) {
+        return {
+          konto: input.account,
+          status: 'zeitüberschreitung',
+          hinweis: SUSA_TIMEOUT_HINWEIS,
+          kontrolleAusBuchungen: round2(stapel.balance),
+          anzahlBuchungen: stapel.bookingCount,
+        };
+      }
+      throw error;
+    }
 
     // WICHTIG: Der verbindliche Eintrag wird per EXAKTER Kontonummer gewählt.
     // Die SuSa mischt 4-stellige Sachkonten und 5-stellige Personenkonten — mit

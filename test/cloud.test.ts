@@ -734,3 +734,55 @@ describe('Externe Review-Fixes', () => {
     expect(result.items[0]?.account).toBe('8500');
   });
 });
+
+describe('SuSa-Timeout-Härtung (Option B)', () => {
+  afterEach(() => {
+    datevStore.clear();
+  });
+
+  const timeoutError = (): Error =>
+    Object.assign(new Error('The operation was aborted due to timeout'), {
+      name: 'TimeoutError',
+    });
+
+  it('get_sums_and_balances: Timeout → klarer Hinweis auf datev_load_from_cloud', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => {
+      throw timeoutError();
+    });
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.getSumsAndBalances({
+      clientId: '455148-1',
+      fiscalYearId: 20230101,
+    });
+
+    expect(result.status).toBe('zeitüberschreitung');
+    expect(String(result.hinweis)).toContain('datev_load_from_cloud');
+  });
+
+  it('get_account_balance (Cloud): Timeout → Hinweis + Kontrollrechnung, kein saldo', async () => {
+    const config = makeConfig();
+    storeValidTokens(config);
+    const dataset = buildCloudDataset(
+      '455148-1',
+      'Testmandant',
+      20230101,
+      { accountLength: 4, accountSystem: '03' },
+      [{ accountNumber: 12000000, amountCredit: 70836.64, date: '2023-12-31' }]
+    );
+    datevStore.set(dataset, '455148-1:20230101');
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => {
+      throw timeoutError();
+    });
+    const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
+
+    const result = await cloud.accountBalance({ account: '1200' });
+
+    expect(result.status).toBe('zeitüberschreitung');
+    expect(String(result.hinweis)).toContain('datev_load_from_cloud');
+    expect(result.saldo).toBeUndefined();
+    expect(result.kontrolleAusBuchungen).toBe(-70836.64);
+  });
+});
