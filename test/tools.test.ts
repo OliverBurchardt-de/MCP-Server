@@ -15,11 +15,11 @@ const fixturePath = path.resolve('test/fixtures/sample.extf');
 describe('DATEV tools', () => {
   beforeEach(() => {
     datevStore.clear();
-    loadDatevFile({ path: fixturePath }, FIXTURES);
+    loadDatevFile({ path: fixturePath }, FIXTURES, true);
   });
 
   it('loads the file and returns a summary', () => {
-    const result = loadDatevFile({ path: fixturePath }, FIXTURES);
+    const result = loadDatevFile({ path: fixturePath }, FIXTURES, true);
 
     expect(result.bookingCount).toBe(22);
     expect(result.accountFramework).toBe('SKR03');
@@ -58,6 +58,39 @@ describe('DATEV tools', () => {
 
     expect(result.count).toBe(1);
     expect(result.items[0]?.bookingText).toContain('Folgeauftrag');
+  });
+});
+
+describe('gezielte Datensatz-Auswahl (dataset-Parameter)', () => {
+  const secondKey = 'test/fixtures/second.extf';
+
+  beforeEach(() => {
+    datevStore.clear();
+    // Erster Datensatz unter seinem Dateipfad-Schlüssel.
+    loadDatevFile({ path: fixturePath }, FIXTURES, true);
+    // Zweiter Datensatz unter eigenem Schlüssel; wird damit der aktive.
+    const first = datevStore.get();
+    datevStore.set({ ...first, bookings: [] }, secondKey);
+  });
+
+  it('nutzt ohne dataset den aktiven (zuletzt geladenen) Datensatz', () => {
+    const result = searchDocuments({ query: 'RE-1004' });
+    // Der aktive (zweite) Datensatz hat keine Buchungen.
+    expect(result.count).toBe(0);
+  });
+
+  it('greift mit dataset-Schlüssel gezielt auf den ersten Datensatz zu', () => {
+    const result = searchDocuments({
+      query: 'RE-1004',
+      dataset: fixturePath,
+    });
+    expect(result.count).toBe(1);
+  });
+
+  it('wirft mit Liste verfügbarer Schlüssel bei unbekanntem dataset', () => {
+    expect(() =>
+      getAccountBalance({ account: '8400', dataset: 'nicht-geladen' })
+    ).toThrow(/Kein Datensatz "nicht-geladen" geladen/);
   });
 });
 

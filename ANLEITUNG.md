@@ -30,6 +30,18 @@ zu diesem Buchungsstapel.
 > können Sie über die Umgebungsvariable `DATEV_IMPORT_DIR` in der Claude-Desktop-
 > Konfiguration festlegen (im `env`-Block, wie `DATEV_ENV`).
 
+> **Nur echte DATEV-Exporte:** Der Server akzeptiert ausschließlich echte
+> DATEV-Buchungsstapel im EXTF-/DTVF-Format (die erste Zeile beginnt mit
+> `"EXTF";…` bzw. `"DTVF";…`, wie DATEV es selbst erzeugt). So ist
+> sichergestellt, dass Konten, Beträge und Soll/Haben eindeutig zugeordnet
+> werden. Ein vereinfachtes „Test"-CSV ohne diese Kennung wird bewusst
+> abgelehnt. Zum Ausprobieren liegt eine passende Beispieldatei bei:
+> `Test-Buchungsstapel-EXTF700.csv` (in den Import-Ordner legen und
+> „Lade die DATEV-Datei Test-Buchungsstapel-EXTF700.csv" sagen). Nur für
+> Entwickler-/Testzwecke lässt sich das alte, vereinfachte Format über die
+> Umgebungsvariable `DATEV_ALLOW_LEGACY_FORMAT=true` freischalten — im
+> Echtbetrieb bleibt es abgeschaltet.
+
 **Weg 2 — Live aus der DATEV-Cloud (das eigentliche Ziel):**
 Claude meldet sich mit Ihrem DATEV-Konto an und holt die Buchungsdaten
 direkt aus der DATEV-Cloud — ohne manuellen Export. Dafür ist einmalig

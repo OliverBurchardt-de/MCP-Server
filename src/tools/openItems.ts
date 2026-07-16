@@ -23,6 +23,12 @@ const MAX_ITEMS = 200;
 
 /** Eingabeschema: optionale Filter nach Typ, Überfälligkeit, Stichtag und Anzahl. */
 export const getOpenItemsSchema = {
+  dataset: z
+    .string()
+    .optional()
+    .describe(
+      'Optionaler Datensatz-Schlüssel (clientId:fiscalYearId), um gezielt einen bestimmten geladenen Datensatz abzufragen'
+    ),
   overdueOnly: z.boolean().optional(),
   type: z.enum(['debtor', 'creditor']).optional(),
   referenceDate: z
@@ -98,13 +104,15 @@ export const getOpenItems = ({
   type,
   referenceDate,
   maxResults,
+  dataset: datasetKey,
 }: {
   overdueOnly?: boolean;
   type?: 'debtor' | 'creditor';
   referenceDate?: string;
   maxResults?: number;
+  dataset?: string;
 }) => {
-  const dataset = datevStore.get();
+  const dataset = datevStore.get(datasetKey);
   const today = referenceDate ?? new Date().toISOString().slice(0, 10);
   const accountLength = dataset.header.accountLength || 4;
 

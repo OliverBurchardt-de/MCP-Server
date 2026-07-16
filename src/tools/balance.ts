@@ -17,11 +17,17 @@ import { z } from 'zod';
 import { datevStore } from '../store/memory.js';
 import type { DatevBooking } from '../parser/types.js';
 
-/** Eingabeschema: die Kontonummer als Ziffernfolge. */
+/** Eingabeschema: die Kontonummer als Ziffernfolge (optional gezielter Datensatz). */
 export const getAccountBalanceSchema = {
   account: z
     .string()
     .regex(/^\d+$/, 'Kontonummer besteht nur aus Ziffern (z. B. 1200)'),
+  dataset: z
+    .string()
+    .optional()
+    .describe(
+      'Optionaler Datensatz-Schlüssel (clientId:fiscalYearId), um gezielt einen bestimmten geladenen Mandanten/Wirtschaftsjahr abzufragen'
+    ),
 };
 
 /**
@@ -148,9 +154,11 @@ export const computeAccountBalance = (
  */
 export const getAccountBalance = ({
   account,
+  dataset: datasetKey,
 }: {
   account: string;
+  dataset?: string;
 }): AccountBalanceResult => {
-  const dataset = datevStore.get();
+  const dataset = datevStore.get(datasetKey);
   return computeAccountBalance(dataset.bookings, account);
 };

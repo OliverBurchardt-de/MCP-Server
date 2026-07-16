@@ -277,12 +277,22 @@ const mapBookings = (
     const amount = parseAmount(
       pick(record, 'Umsatz (ohne Soll/Haben-Kz)', 'Umsatz', 'Betrag') || '0'
     );
-    const direction =
-      (
-        pick(record, 'Soll/Haben-Kennzeichen', 'Soll/Haben', 'Saldo') || 'S'
-      ).toUpperCase() === 'H'
-        ? 'H'
-        : 'S';
+    // Soll/Haben strikt validieren: NICHT unbekannte/fehlende Kennzeichen auf
+    // Soll raten (das würde eine Buchung lautlos falsch verbuchen).
+    const rawDirection = pick(
+      record,
+      'Soll/Haben-Kennzeichen',
+      'Soll/Haben',
+      'Saldo'
+    )
+      .trim()
+      .toUpperCase();
+    if (rawDirection !== 'S' && rawDirection !== 'H') {
+      throw new Error(
+        `Ungültiges oder fehlendes Soll/Haben-Kennzeichen in Zeile ${index + firstDataLine}.`
+      );
+    }
+    const direction: 'S' | 'H' = rawDirection;
     const openItemFlag = (record['Offener Posten'] || '').toLowerCase();
 
     return {
@@ -322,7 +332,10 @@ const MAX_IMPORT_FILE_BYTES = 64 * 1024 * 1024; // 64 MB
 /** Obergrenze der eingelesenen Datenzeilen. */
 const MAX_IMPORT_DATA_ROWS = 200_000;
 
-export const parseDatevExtfFile = (filePath: string): DatevDataset => {
+export const parseDatevExtfFile = (
+  filePath: string,
+  allowLegacy = false
+): DatevDataset => {
   // Nur reguläre Dateien und eine sichere Maximalgröße zulassen: Ein sehr großer
   // Bestand oder ein Spezialpfad (Gerät/FIFO) könnte sonst den stdio-Prozess
   // blockieren oder den Speicher erschöpfen. Die Pfadgrenze schützt nur die
@@ -352,8 +365,17 @@ export const parseDatevExtfFile = (filePath: string): DatevDataset => {
   const marker = (rows[0]?.[0] ?? '').trim().replace(/^"|"$/g, '');
   const isOfficialFormat = marker === 'EXTF' || marker === 'DTVF';
 
+  // Nur echte DATEV-Formate (EXTF/DTVF) akzeptieren. Das vereinfachte Legacy-/
+  // Testformat wird ohne ausdrückliche Freigabe abgelehnt, damit eine fremde
+  // oder beschädigte CSV nicht als gültiger Buchungsstapel durchgeht.
+  if (!isOfficialFormat && !allowLegacy) {
+    throw new Error(
+      'Unbekanntes Dateiformat: Es werden nur echte DATEV-Exporte (EXTF/DTVF) akzeptiert. Bitte den Buchungsstapel im DATEV-Format exportieren.'
+    );
+  }
+
   if (rows.length < (isOfficialFormat ? 2 : 3)) {
-    throw new Error('Invalid EXTF file: too few lines');
+    throw new Error('Ungültige DATEV-Datei: zu wenige Zeilen.');
   }
 
   // Header sind die ersten 2 (offiziell) bzw. 3 (Legacy) Zeilen; danach Daten.
@@ -371,6 +393,27 @@ export const parseDatevExtfFile = (filePath: string): DatevDataset => {
   const columns = (rows[isOfficialFormat ? 1 : 2] ?? []).map((value) =>
     value.trim()
   );
+
+  // Pflichtspalten prüfen, bevor gemappt wird — sonst könnten stumme
+  // Fehlinterpretationen entstehen (fehlender Betrag/Konto/Kennzeichen).
+  const hasColumn = (...names: string[]): boolean =>
+    names.some((name) => columns.includes(name));
+  const missing: string[] = [];
+  if (!hasColumn('Umsatz (ohne Soll/Haben-Kz)', 'Umsatz', 'Betrag')) {
+    missing.push('Umsatz/Betrag');
+  }
+  if (!hasColumn('Soll/Haben-Kennzeichen', 'Soll/Haben', 'Saldo')) {
+    missing.push('Soll/Haben-Kennzeichen');
+  }
+  if (!hasColumn('Konto', 'Sachkonto')) {
+    missing.push('Konto');
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `Pflichtspalten fehlen im Buchungsstapel: ${missing.join(', ')}.`
+    );
+  }
+
   const bookings = mapBookings(dataRows, columns, header, headerRowCount + 1);
 
   return {

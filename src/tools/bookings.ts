@@ -15,6 +15,12 @@ const MAX_RESULT_ROWS = 200;
 
 /** Eingabeschema: Konto, Zeitraum, Mindestbetrag und Volltext (alle optional). */
 export const listBookingsSchema = {
+  dataset: z
+    .string()
+    .optional()
+    .describe(
+      'Optionaler Datensatz-Schlüssel (clientId:fiscalYearId), um gezielt einen bestimmten geladenen Mandanten/Wirtschaftsjahr abzufragen statt des aktiven'
+    ),
   account: z
     .string()
     .regex(/^\d+$/, 'Kontonummer besteht nur aus Ziffern')
@@ -85,8 +91,8 @@ const matchesFilter = (
  * @returns Anzahl und Liste der passenden Buchungen (auf die für Fragen
  *   relevanten Felder reduziert).
  */
-export const listBookings = (filter: BookingFilter) => {
-  const dataset = datevStore.get();
+export const listBookings = (filter: BookingFilter & { dataset?: string }) => {
+  const dataset = datevStore.get(filter.dataset);
   const matched = dataset.bookings
     .filter((booking) => matchesFilter(filter, booking))
     .sort((left, right) => left.bookingDate.localeCompare(right.bookingDate));

@@ -50,6 +50,16 @@ export interface DatevConfig {
    * den Export eines anderen Mandanten. Über `DATEV_IMPORT_DIR` anpassbar.
    */
   importBaseDir: string;
+  /**
+   * Erlaubt das vereinfachte Legacy-/Testformat beim Dateiimport.
+   *
+   * @remarks
+   * Standard **false**: In Produktion werden nur echte DATEV-Exporte mit
+   * `EXTF`/`DTVF`-Kennung akzeptiert, damit fremde/beschädigte CSV-Dateien nicht
+   * als gültiger Buchungsstapel durchgehen. Nur für Tests/Entwicklung per
+   * `DATEV_ALLOW_LEGACY_FORMAT=true` einschaltbar.
+   */
+  allowLegacyFormat: boolean;
 }
 
 /**
@@ -116,6 +126,7 @@ export const loadConfig = (
       path.join(os.homedir(), '.datev-mcp', `tokens-${environment}.json`),
     importBaseDir:
       env.DATEV_IMPORT_DIR ?? path.join(os.homedir(), '.datev-mcp', 'import'),
+    allowLegacyFormat: env.DATEV_ALLOW_LEGACY_FORMAT === 'true',
   };
 };
 

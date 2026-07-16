@@ -15,7 +15,7 @@ describe('server integration', () => {
 
   it('supports loading and querying within the same process', () => {
     datevStore.clear();
-    const loaded = loadDatevFile({ path: fixturePath }, FIXTURES);
+    const loaded = loadDatevFile({ path: fixturePath }, FIXTURES, true);
 
     expect(loaded.bookingCount).toBe(22);
     expect(datevStore.get().bookings[0]?.documentField1).toBe('RE-1001');

@@ -64,20 +64,32 @@ class InMemoryDatevStore {
   }
 
   /**
-   * Liefert den aktiven Datensatz.
+   * Liefert einen geladenen Datensatz.
    *
-   * @throws Error - wenn noch nichts geladen wurde (mit Hinweis auf die
-   *   Lade-Tools) oder der aktive Datensatz nicht mehr existiert.
+   * @param key - Optionaler Store-Schlüssel (`clientId:fiscalYearId` bzw.
+   *   Dateipfad), um **gezielt** einen bestimmten geladenen Datensatz anzusprechen
+   *   statt des aktiven. Verhindert, dass eine Frage versehentlich den falschen
+   *   Mandanten/Wirtschaftsjahr trifft, wenn mehrere Datensätze geladen sind.
+   * @throws Error - wenn noch nichts geladen wurde, der gewünschte Schlüssel nicht
+   *   existiert (mit Liste der verfügbaren Schlüssel) oder der aktive Datensatz
+   *   nicht mehr existiert.
    */
-  get(): DatevDataset {
-    if (!this.activeKey) {
+  get(key?: string): DatevDataset {
+    const targetKey = key ?? this.activeKey;
+    if (!targetKey) {
       throw new Error(
         'Keine Daten geladen. Zuerst load_datev_file (Exportdatei) oder datev_load_from_cloud (Live-Daten) ausführen.'
       );
     }
 
-    const dataset = this.datasets.get(this.activeKey);
+    const dataset = this.datasets.get(targetKey);
     if (!dataset) {
+      if (key) {
+        const available = [...this.datasets.keys()];
+        throw new Error(
+          `Kein Datensatz "${key}" geladen. Verfügbar: ${available.length ? available.join(', ') : '(keiner)'}. Bitte zuerst laden oder einen der verfügbaren Schlüssel angeben.`
+        );
+      }
       throw new Error('Der aktive Datensatz existiert nicht mehr.');
     }
 

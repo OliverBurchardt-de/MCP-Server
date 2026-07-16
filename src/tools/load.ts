@@ -92,10 +92,11 @@ export const resolveImportPath = (
  */
 export const loadDatevFile = (
   { path: userPath }: { path: string },
-  baseDir: string = config.importBaseDir
+  baseDir: string = config.importBaseDir,
+  allowLegacy: boolean = config.allowLegacyFormat
 ) => {
   const resolved = resolveImportPath(userPath, baseDir);
-  const dataset = parseDatevExtfFile(resolved);
+  const dataset = parseDatevExtfFile(resolved, allowLegacy);
   datevStore.set(dataset);
 
   return {

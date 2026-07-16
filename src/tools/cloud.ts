@@ -498,8 +498,9 @@ export class CloudTools {
    */
   async accountBalance(input: {
     account: string;
+    dataset?: string;
   }): Promise<Record<string, unknown>> {
-    const dataset = datevStore.get();
+    const dataset = datevStore.get(input.dataset);
 
     // Datei-Datensatz: exakte Rechnung aus dem Stapel (verbindlich, da keine
     // DATEV-Summenliste vorliegt). Exakter Konto-Vergleich verhindert die

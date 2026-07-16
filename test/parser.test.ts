@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseAmount, parseDatevExtfFile } from '../src/parser/extf.js';
@@ -6,7 +8,7 @@ const fixturePath = path.resolve('test/fixtures/sample.extf');
 
 describe('parseDatevExtfFile', () => {
   it('parses header metadata correctly', () => {
-    const dataset = parseDatevExtfFile(fixturePath);
+    const dataset = parseDatevExtfFile(fixturePath, true);
 
     expect(dataset.header.advisorNumber).toBe('99999');
     expect(dataset.header.clientNumber).toBe('10001');
@@ -19,7 +21,7 @@ describe('parseDatevExtfFile', () => {
   });
 
   it('parses bookings and preserves latin1 umlauts', () => {
-    const dataset = parseDatevExtfFile(fixturePath);
+    const dataset = parseDatevExtfFile(fixturePath, true);
 
     expect(dataset.bookings).toHaveLength(22);
     expect(dataset.bookings[5]?.account).toBe('10000');
@@ -29,7 +31,7 @@ describe('parseDatevExtfFile', () => {
   });
 
   it('kennzeichnet einen vollständigen Datei-Import in der Provenance', () => {
-    const dataset = parseDatevExtfFile(fixturePath);
+    const dataset = parseDatevExtfFile(fixturePath, true);
     expect(dataset.provenance.complete).toBe(true);
     expect(dataset.provenance.truncated).toBe(false);
     expect(dataset.provenance.parseErrors).toBe(0);
@@ -40,6 +42,41 @@ describe('parseDatevExtfFile', () => {
     expect(() => parseDatevExtfFile(path.resolve('test/fixtures'))).toThrow(
       /reguläre Dateien/
     );
+  });
+
+  it('lehnt ein unbekanntes Format ohne Legacy-Freigabe ab', () => {
+    // sample.extf hat keine EXTF/DTVF-Kennung → ohne allowLegacy abgelehnt.
+    expect(() => parseDatevExtfFile(fixturePath)).toThrow(/EXTF\/DTVF/);
+  });
+});
+
+describe('parseDatevExtfFile Validierung (offizielles Format)', () => {
+  const writeTemp = (lines: string[]): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'datev-extf-'));
+    const file = path.join(dir, 'stapel.csv');
+    fs.writeFileSync(file, lines.join('\n'));
+    return file;
+  };
+
+  const officialHeader =
+    '"EXTF";700;21;"Buchungsstapel";13;20260101120000000;;"RE";"K";"";99999;10001;20260101;4;20260101;20260331;"T";"OB";1;0;0;"EUR";;"";;"";"03"';
+
+  it('lehnt ein ungültiges Soll/Haben-Kennzeichen mit Zeilennummer ab', () => {
+    const file = writeTemp([
+      officialHeader,
+      '"Umsatz (ohne Soll/Haben-Kz)";"Soll/Haben-Kennzeichen";"Konto";"Gegenkonto";"Belegdatum";"Buchungstext"',
+      '"100,00";"X";"1200";"8400";"20260101";"Test"',
+    ]);
+    expect(() => parseDatevExtfFile(file)).toThrow(/Soll\/Haben-Kennzeichen/);
+  });
+
+  it('lehnt fehlende Pflichtspalten ab', () => {
+    const file = writeTemp([
+      officialHeader,
+      '"Konto";"Gegenkonto";"Belegdatum";"Buchungstext"',
+      '"1200";"8400";"20260101";"Test"',
+    ]);
+    expect(() => parseDatevExtfFile(file)).toThrow(/Pflichtspalten fehlen/);
   });
 });
 

@@ -12,9 +12,15 @@ import { datasetWarning, datevStore } from '../store/memory.js';
 /** Obergrenze der zurückgegebenen Treffer (Kontext-Schutz). */
 const MAX_RESULT_ROWS = 200;
 
-/** Eingabeschema: der Suchbegriff. */
+/** Eingabeschema: der Suchbegriff (optional gezielter Datensatz). */
 export const searchDocumentsSchema = {
   query: z.string().min(1),
+  dataset: z
+    .string()
+    .optional()
+    .describe(
+      'Optionaler Datensatz-Schlüssel (clientId:fiscalYearId), um gezielt einen bestimmten geladenen Datensatz zu durchsuchen'
+    ),
 };
 
 /**
@@ -23,8 +29,14 @@ export const searchDocumentsSchema = {
  * @param query - Suchbegriff (Groß-/Kleinschreibung wird ignoriert).
  * @returns Anzahl und Liste der Treffer, nach Buchungsdatum sortiert.
  */
-export const searchDocuments = ({ query }: { query: string }) => {
-  const dataset = datevStore.get();
+export const searchDocuments = ({
+  query,
+  dataset: datasetKey,
+}: {
+  query: string;
+  dataset?: string;
+}) => {
+  const dataset = datevStore.get(datasetKey);
   const needle = query.toLowerCase();
   const matched = dataset.bookings
     .filter((booking) =>

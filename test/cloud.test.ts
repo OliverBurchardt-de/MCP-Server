@@ -795,7 +795,8 @@ describe('Externe Review-Fixes', () => {
   it('Fix 5: meldet im Datei-Modus ein unbekanntes Konto als gefunden:false', async () => {
     loadDatevFile(
       { path: path.resolve('test/fixtures/sample.extf') },
-      path.resolve('test/fixtures')
+      path.resolve('test/fixtures'),
+      true
     );
     const cloud = new CloudTools(makeConfig());
 
