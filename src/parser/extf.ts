@@ -317,7 +317,26 @@ const mapBookings = (
  * @returns Der geparste Datensatz mit Header und Buchungen.
  * @throws Error - wenn die Datei zu wenige Zeilen für einen gültigen Stapel hat.
  */
+/** Obergrenze der Import-Dateigröße (Schutz vor Speicher-/Prozess-Erschöpfung). */
+const MAX_IMPORT_FILE_BYTES = 64 * 1024 * 1024; // 64 MB
+/** Obergrenze der eingelesenen Datenzeilen. */
+const MAX_IMPORT_DATA_ROWS = 200_000;
+
 export const parseDatevExtfFile = (filePath: string): DatevDataset => {
+  // Nur reguläre Dateien und eine sichere Maximalgröße zulassen: Ein sehr großer
+  // Bestand oder ein Spezialpfad (Gerät/FIFO) könnte sonst den stdio-Prozess
+  // blockieren oder den Speicher erschöpfen. Die Pfadgrenze schützt nur die
+  // Vertraulichkeit, nicht die Verfügbarkeit.
+  const stats = fs.statSync(filePath);
+  if (!stats.isFile()) {
+    throw new Error('Es können nur reguläre Dateien geladen werden.');
+  }
+  if (stats.size > MAX_IMPORT_FILE_BYTES) {
+    throw new Error(
+      `Die Datei ist zu groß (${Math.round(stats.size / 1048576)} MB; Grenze ${MAX_IMPORT_FILE_BYTES / 1048576} MB). Bitte den DATEV-Export einschränken.`
+    );
+  }
+
   const buffer = fs.readFileSync(filePath);
   // DATEV-Exporte sind Latin-1-kodiert; ohne diese Dekodierung würden Umlaute
   // (ä/ö/ü/ß) in Konto- und Buchungstexten zerstört.
@@ -337,30 +356,22 @@ export const parseDatevExtfFile = (filePath: string): DatevDataset => {
     throw new Error('Invalid EXTF file: too few lines');
   }
 
-  if (isOfficialFormat) {
-    // Offizielles DATEV-Format: Zeile 1 = positionaler Header,
-    // Zeile 2 = Spaltenüberschriften, ab Zeile 3 Buchungen.
-    const line1 = rows[0] ?? [];
-    const columns = (rows[1] ?? []).map((value) => value.trim());
-    const header = mapOfficialHeader(line1, rows[1] ?? []);
-    const bookings = mapBookings(rows.slice(2), columns, header, 3);
+  // Header sind die ersten 2 (offiziell) bzw. 3 (Legacy) Zeilen; danach Daten.
+  const headerRowCount = isOfficialFormat ? 2 : 3;
+  const allDataRows = rows.slice(headerRowCount);
+  const truncated = allDataRows.length > MAX_IMPORT_DATA_ROWS;
+  const dataRows = truncated
+    ? allDataRows.slice(0, MAX_IMPORT_DATA_ROWS)
+    : allDataRows;
 
-    return {
-      filePath,
-      header,
-      columns,
-      bookings,
-      loadedAt: new Date().toISOString(),
-    };
-  }
-
-  // Vereinfachtes Schlüssel/Wert-Format: Zeile 1 = Header-Feldnamen,
-  // Zeile 2 = Header-Werte, Zeile 3 = Spaltenüberschriften, ab Zeile 4 Buchungen.
   const line1 = rows[0] ?? [];
-  const line2 = rows[1] ?? [];
-  const columns = (rows[2] ?? []).map((value) => value.trim());
-  const header = mapLegacyHeader(line1, line2);
-  const bookings = mapBookings(rows.slice(3), columns, header, 4);
+  const header = isOfficialFormat
+    ? mapOfficialHeader(line1, rows[1] ?? [])
+    : mapLegacyHeader(line1, rows[1] ?? []);
+  const columns = (rows[isOfficialFormat ? 1 : 2] ?? []).map((value) =>
+    value.trim()
+  );
+  const bookings = mapBookings(dataRows, columns, header, headerRowCount + 1);
 
   return {
     filePath,
@@ -368,6 +379,13 @@ export const parseDatevExtfFile = (filePath: string): DatevDataset => {
     columns,
     bookings,
     loadedAt: new Date().toISOString(),
+    provenance: {
+      complete: !truncated,
+      loadedCount: bookings.length,
+      totalCount: allDataRows.length,
+      truncated,
+      parseErrors: 0,
+    },
   };
 };
 

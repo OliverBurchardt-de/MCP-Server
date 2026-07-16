@@ -16,7 +16,7 @@
 import { z } from 'zod';
 import { getPersonAccountType } from '../parser/extf.js';
 import type { DatevBooking, OpenItem } from '../parser/types.js';
-import { datevStore } from '../store/memory.js';
+import { datasetWarning, datevStore } from '../store/memory.js';
 
 /** Obergrenze der zurückgegebenen Posten (Kontext-Schutz). */
 const MAX_ITEMS = 200;
@@ -116,9 +116,11 @@ export const getOpenItems = ({
 
   const items = all.slice(0, maxResults ?? MAX_ITEMS);
 
+  const warnung = datasetWarning(dataset);
   return {
     count: all.length,
     angezeigt: items.length,
+    ...(warnung ? { datenstandWarnung: warnung } : {}),
     hinweis:
       'Grundlage sind die Buchungen dieses Stapels (Personenkonten als Haupt- oder Gegenkonto), kein periodenübergreifender OPOS-Abgleich. Ob ein Posten wirklich noch offen (unbezahlt) ist, zeigt die Summen-/Saldenliste bzw. das OPOS aus der DATEV-Cloud.',
     items,

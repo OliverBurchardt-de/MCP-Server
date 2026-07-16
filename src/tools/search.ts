@@ -7,7 +7,7 @@
  * Rechnung anhand ihrer Nummer zu finden.
  */
 import { z } from 'zod';
-import { datevStore } from '../store/memory.js';
+import { datasetWarning, datevStore } from '../store/memory.js';
 
 /** Obergrenze der zurückgegebenen Treffer (Kontext-Schutz). */
 const MAX_RESULT_ROWS = 200;
@@ -46,9 +46,11 @@ export const searchDocuments = ({ query }: { query: string }) => {
     documentField2: booking.documentField2,
   }));
 
+  const warnung = datasetWarning(dataset);
   return {
     count: matched.length,
     angezeigt: items.length,
+    ...(warnung ? { datenstandWarnung: warnung } : {}),
     ...(matched.length > items.length
       ? {
           hinweis: 'Ausgabe gekürzt — bitte den Suchbegriff präzisieren.',

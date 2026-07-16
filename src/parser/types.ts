@@ -59,6 +59,28 @@ export interface DatevBooking {
   raw: Record<string, string>;
 }
 
+/**
+ * Herkunft und **Vollständigkeit** eines Datensatzes.
+ *
+ * @remarks
+ * Wird dauerhaft im Datensatz gehalten, damit nachfolgende Auswertungen
+ * (`list_bookings`, `get_open_items`, …) einen **Teilbestand** nicht als
+ * vollständig ausgeben. Wichtig für belastbare Zahlen: „keine Daten" und
+ * „unvollständig geladen/geparst" müssen unterscheidbar bleiben.
+ */
+export interface DatevProvenance {
+  /** `true`, wenn der Datensatz vollständig und fehlerfrei geladen wurde. */
+  complete: boolean;
+  /** Anzahl tatsächlich übernommener Buchungen. */
+  loadedCount: number;
+  /** Von der Quelle gemeldete Gesamtzahl (falls bekannt). */
+  totalCount?: number;
+  /** `true`, wenn wegen einer Mengenobergrenze abgeschnitten wurde. */
+  truncated: boolean;
+  /** Anzahl nicht lesbarer/übersprungener Zeilen (NDJSON/CSV). */
+  parseErrors: number;
+}
+
 /** Ein geladener Datensatz aus einer Quelle (Datei oder Cloud). */
 export interface DatevDataset {
   /** Quell-Schlüssel: Dateipfad oder `datev-cloud://…`-Pseudo-URL. */
@@ -69,6 +91,8 @@ export interface DatevDataset {
   bookings: DatevBooking[];
   /** Ladezeitpunkt (ISO-8601). */
   loadedAt: string;
+  /** Herkunft/Vollständigkeit des Datensatzes. */
+  provenance: DatevProvenance;
 }
 
 /** Ein offener Posten (Debitor/Kreditor) als Ergebnis von `get_open_items`. */

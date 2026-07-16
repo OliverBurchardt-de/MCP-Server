@@ -108,6 +108,10 @@ export const startLoginFlow = (
   const { verifier, challenge } = createPkcePair();
   const authorizeUrl = buildAuthorizeUrl(config, state, challenge);
 
+  // Der Callback darf genau EINMAL verarbeitet werden — schützt vor doppelter
+  // Verarbeitung (z. B. paralleler Request), bevor der Server schließt.
+  let consumed = false;
+
   const server = http.createServer((req, res) => {
     const url = new URL(
       req.url ?? '/',
@@ -117,6 +121,29 @@ export const startLoginFlow = (
       res.writeHead(404).end();
       return;
     }
+
+    // SICHERHEIT: `state` ZUERST prüfen — für Erfolgs- UND Fehler-Callbacks. Ein
+    // Aufruf ohne gültigen state (etwa ein fremder oder lokaler Request mit
+    // `?error=…`) darf den laufenden Login weder abbrechen noch Tokens speichern.
+    // Bei Fehlschlag bleibt der Server bewusst offen und der Login-Zustand
+    // unverändert, damit der echte Callback noch ankommen kann.
+    const returnedState = url.searchParams.get('state');
+    if (!constantTimeEqual(returnedState ?? '', state)) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(
+        htmlResponse(
+          'Ungültiger Aufruf',
+          'Der Sicherheits-Token (state) stimmt nicht. Sie können dieses Fenster schließen.'
+        )
+      );
+      return;
+    }
+
+    if (consumed) {
+      res.writeHead(400).end();
+      return;
+    }
+    consumed = true;
 
     const finish = (ok: boolean, message: string): void => {
       res.writeHead(ok ? 200 : 400, {
@@ -144,12 +171,10 @@ export const startLoginFlow = (
     }
 
     const code = url.searchParams.get('code');
-    const returnedState = url.searchParams.get('state');
-    if (!code || !constantTimeEqual(returnedState ?? '', state)) {
+    if (!code) {
       currentState = {
         status: 'error',
-        message:
-          'Ungültiger Callback (Code fehlt oder State stimmt nicht überein).',
+        message: 'Ungültiger Callback (Code fehlt).',
         finishedAt: Date.now(),
       };
       finish(false, currentState.message);

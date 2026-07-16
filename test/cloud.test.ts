@@ -21,7 +21,7 @@ import { CloudTools } from '../src/tools/cloud.js';
 import { loadDatevFile } from '../src/tools/load.js';
 import { getOpenItems } from '../src/tools/openItems.js';
 import { searchDocuments } from '../src/tools/search.js';
-import { datevStore } from '../src/store/memory.js';
+import { datasetWarning, datevStore } from '../src/store/memory.js';
 
 const makeConfig = (overrides: Partial<DatevConfig> = {}): DatevConfig => ({
   ...loadConfig({
@@ -200,6 +200,75 @@ describe('parseNdjson', () => {
     ]);
     // Ein beschädigtes JSON-Array ergibt eine leere Liste statt eines Wurfs.
     expect(parseNdjson('[{"a":1},')).toEqual([]);
+  });
+
+  it('zählt nicht lesbare Zeilen im stats-Objekt', () => {
+    const stats = { errors: 0 };
+    expect(parseNdjson('{"a":1}\n{broken\n{"a":2}', stats)).toEqual([
+      { a: 1 },
+      { a: 2 },
+    ]);
+    expect(stats.errors).toBe(1);
+
+    const arrayStats = { errors: 0 };
+    expect(parseNdjson('[broken', arrayStats)).toEqual([]);
+    expect(arrayStats.errors).toBe(1);
+  });
+});
+
+describe('Datenvollständigkeit (Provenance)', () => {
+  afterEach(() => {
+    datevStore.clear();
+  });
+
+  it('kennzeichnet vollständige und unvollständige Cloud-Datensätze', () => {
+    const complete = buildCloudDataset(
+      '455148-1',
+      'T',
+      20230101,
+      { accountLength: 4 },
+      [{ accountNumber: 12000000, amountDebit: 1, date: '2023-01-01' }]
+    );
+    expect(complete.provenance.complete).toBe(true);
+    expect(datasetWarning(complete)).toBeUndefined();
+
+    const partial = buildCloudDataset(
+      '455148-1',
+      'T',
+      20230101,
+      { accountLength: 4 },
+      [{ accountNumber: 12000000, amountDebit: 1, date: '2023-01-01' }],
+      { truncated: true, totalCount: 99999, parseErrors: 3 }
+    );
+    expect(partial.provenance.complete).toBe(false);
+    expect(partial.provenance.parseErrors).toBe(3);
+    expect(String(datasetWarning(partial))).toContain('UNVOLLSTÄNDIG');
+  });
+
+  it('list_bookings und get_open_items warnen bei unvollständigem Datensatz', () => {
+    const partial = buildCloudDataset(
+      '455148-1',
+      'T',
+      20230101,
+      { accountLength: 4 },
+      [
+        {
+          accountNumber: 100000000,
+          contraAccountNumber: 84000000,
+          amountDebit: 100,
+          date: '2023-01-01',
+        },
+      ],
+      { truncated: true, totalCount: 99999 }
+    );
+    datevStore.set(partial, 'k');
+
+    expect(String(listBookings({}).datenstandWarnung)).toContain(
+      'UNVOLLSTÄNDIG'
+    );
+    expect(String(getOpenItems({}).datenstandWarnung)).toContain(
+      'UNVOLLSTÄNDIG'
+    );
   });
 });
 

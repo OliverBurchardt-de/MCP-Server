@@ -19,8 +19,6 @@ export interface StoredTokens {
   expiresAt: number;
   /** Tatsächlich gewährte Scopes (informativ). */
   scope?: string;
-  /** OpenID-Connect-ID-Token (informativ, aktuell ungenutzt). */
-  idToken?: string;
 }
 
 /** Datei-basierter Token-Speicher (eine Datei je Umgebung). */
@@ -65,8 +63,14 @@ export class FileTokenStore {
   save(tokens: StoredTokens): void {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
     const tempPath = `${this.filePath}.${process.pid}.tmp`;
+    // Exklusiv anlegen ('wx'): schlägt fehl, falls die Temp-Datei bereits
+    // existiert (z. B. Symlink eines Angreifers) — so folgen wir keiner
+    // vorhandenen Datei/Verknüpfung. Reste eines abgebrochenen Laufs vorher
+    // entfernen.
+    fs.rmSync(tempPath, { force: true });
     fs.writeFileSync(tempPath, JSON.stringify(tokens, null, 2), {
       mode: 0o600,
+      flag: 'wx',
     });
     fs.renameSync(tempPath, this.filePath);
     fs.chmodSync(this.filePath, 0o600);

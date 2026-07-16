@@ -96,7 +96,12 @@ export const buildCloudDataset = (
   clientName: string | undefined,
   fiscalYearId: number,
   fiscalYear: FiscalYearDetails | undefined,
-  postings: AccountPosting[]
+  postings: AccountPosting[],
+  completeness: {
+    totalCount?: number;
+    truncated?: boolean;
+    parseErrors?: number;
+  } = {}
 ): DatevDataset => {
   // Sachkontenlänge bestimmt das Padding (8 − Länge). Primär die autoritative
   // DATEV-Angabe nutzen (deckt den ganzen Bereich 4–8 deterministisch ab), sonst
@@ -142,11 +147,21 @@ export const buildCloudDataset = (
     mapAccountPosting(posting, index, padding)
   );
 
+  const truncated = completeness.truncated ?? false;
+  const parseErrors = completeness.parseErrors ?? 0;
+
   return {
     filePath: `datev-cloud://${clientId}/${fiscalYearId}`,
     header,
     columns: [],
     bookings,
     loadedAt: new Date().toISOString(),
+    provenance: {
+      complete: !truncated && parseErrors === 0,
+      loadedCount: bookings.length,
+      totalCount: completeness.totalCount,
+      truncated,
+      parseErrors,
+    },
   };
 };

@@ -174,11 +174,26 @@ Nutzerin/der Nutzer wie gewohnt `1200` bzw. `12000` eingibt.
   eines anderen Mandanten lesen.
 - **Nur Lese-Werkzeuge:** Keines der Tools verändert, löscht oder lädt Daten nach
   DATEV hoch; `datev_login` startet nur den lokalen PKCE-Flow.
-- **Tokens & Geheimnisse:** Tokens liegen mit `0600`/`0700` lokal, werden atomar
+- **Tokens & Geheimnisse:** Tokens liegen lokal (Verzeichnis `0700`, Datei `0600`,
+  exklusiv per `wx` geschrieben, ID-Token wird nicht persistiert), werden atomar
   geschrieben und nie an das Modell zurückgegeben; das Client-Secret geht nur als
   `Authorization: Basic`-Header an den DATEV-Token-Endpunkt. Der Login-Callback
-  lauscht ausschließlich auf `127.0.0.1` und maskiert alle in die Browser-Seite
+  lauscht ausschließlich auf `127.0.0.1`, prüft den `state` **vor** jeder
+  Verarbeitung (auch bei Fehler-Callbacks) und maskiert alle in die Browser-Seite
   eingesetzten Werte (kein reflektiertes XSS).
+  **Einschränkung Windows:** POSIX-Modi (`0600`) setzt Node dort nicht durch — die
+  Datei ist nur durch das Windows-Benutzerprofil/NTFS-ACLs geschützt. Für den
+  Produktionsbetrieb ist ein plattformsicherer Speicher (Windows Credential
+  Manager/DPAPI) vorgesehen; ebenso die volle Session-Isolierung des aktiven
+  Datensatzes (Remote-Phase).
+
+**Datenvollständigkeit (Provenienz):** Jeder Datensatz trägt ein `provenance`-Feld
+(`complete`, `loadedCount`, `totalCount`, `truncated`, `parseErrors`). Abgeschnittene
+(50k-Cap) oder mit nicht lesbaren Zeilen behaftete Bestände werden dauerhaft als
+**unvollständig** markiert; `datev_load_from_cloud`, `list_bookings`,
+`search_documents` und `get_open_items` hängen dann eine `datenstandWarnung` an, damit
+ein Teilbestand nie als vollständig erscheint. So bleiben „keine Daten" und
+„unvollständig geladen/geparst" unterscheidbar.
 
 ---
 

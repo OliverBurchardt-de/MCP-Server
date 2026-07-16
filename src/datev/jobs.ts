@@ -33,6 +33,8 @@ export type JobResult =
       postings: AccountPosting[];
       totalCount: number;
       truncated: boolean;
+      /** Anzahl nicht lesbarer NDJSON-Zeilen über alle Seiten. */
+      parseErrors: number;
     }
   | { status: 'running'; jobId: string; hint: string };
 
@@ -133,15 +135,21 @@ export class AccountPostingsJobRunner {
     // das Ende; der Zeilen-Cap bricht bei sehr großen Beständen vorzeitig ab.
     const postings: AccountPosting[] = [];
     let totalCount = 0;
+    let parseErrors = 0;
     let page = 1;
     let totalPages = 1;
 
     do {
-      const { items, headers } = await this.http.getNdjson<AccountPosting>(
+      const {
+        items,
+        headers,
+        parseErrors: pageErrors,
+      } = await this.http.getNdjson<AccountPosting>(
         base,
         `/clients/${clientSeg}/account-postings-jobs/${jobSeg}`,
         { page }
       );
+      parseErrors += pageErrors;
       // Einzeln anhängen und beim Zeilen-Cap stoppen — kein `push(...items)`
       // mit sehr großen Arrays (Stack-Risiko) und keine Übernahme über MAX_ROWS.
       for (const item of items) {
@@ -165,6 +173,7 @@ export class AccountPostingsJobRunner {
       postings: postings.slice(0, MAX_ROWS),
       totalCount,
       truncated: totalCount > MAX_ROWS,
+      parseErrors,
     };
   }
 }

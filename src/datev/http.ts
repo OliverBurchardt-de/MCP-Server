@@ -136,9 +136,11 @@ export class DatevHttpClient {
     baseUrl: string,
     path: string,
     query?: Record<string, string | number | undefined>
-  ): Promise<{ items: T[]; headers: Headers }> {
+  ): Promise<{ items: T[]; headers: Headers; parseErrors: number }> {
     const response = await this.request(baseUrl, path, { query });
-    return { items: parseNdjson<T>(response.text), headers: response.headers };
+    const stats = { errors: 0 };
+    const items = parseNdjson<T>(response.text, stats);
+    return { items, headers: response.headers, parseErrors: stats.errors };
   }
 }
 
@@ -149,7 +151,10 @@ export class DatevHttpClient {
  * @param text - Roher Antworttext.
  * @returns Ein Array der geparsten Elemente; leerer/whitespace-Text ergibt `[]`.
  */
-export const parseNdjson = <T>(text: string): T[] => {
+export const parseNdjson = <T>(
+  text: string,
+  stats?: { errors: number }
+): T[] => {
   const trimmed = text.trim();
   if (!trimmed) {
     return [];
@@ -157,16 +162,20 @@ export const parseNdjson = <T>(text: string): T[] => {
 
   if (trimmed.startsWith('[')) {
     // Ein klassisches JSON-Array — als Ganzes einlesen. Ist es beschädigt,
-    // liefern wir eine leere Liste statt den ganzen Aufruf abzubrechen.
+    // liefern wir eine leere Liste statt den ganzen Aufruf abzubrechen, zählen
+    // den Fehler aber, damit die Unvollständigkeit sichtbar bleibt.
     try {
       return JSON.parse(trimmed) as T[];
     } catch {
+      if (stats) {
+        stats.errors += 1;
+      }
       return [];
     }
   }
 
   // NDJSON: eine kaputte Zeile darf nicht den gesamten Ladevorgang scheitern
-  // lassen — fehlerhafte Zeilen werden übersprungen.
+  // lassen — fehlerhafte Zeilen werden übersprungen und gezählt.
   const items: T[] = [];
   for (const line of trimmed.split('\n')) {
     const candidate = line.trim();
@@ -176,7 +185,9 @@ export const parseNdjson = <T>(text: string): T[] => {
     try {
       items.push(JSON.parse(candidate) as T);
     } catch {
-      // Beschädigte Zeile überspringen.
+      if (stats) {
+        stats.errors += 1;
+      }
     }
   }
   return items;

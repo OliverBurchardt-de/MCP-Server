@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import type { BookingFilter } from '../parser/types.js';
-import { datevStore } from '../store/memory.js';
+import { datasetWarning, datevStore } from '../store/memory.js';
 
 /** Obergrenze der zurückgegebenen Buchungen (Kontext-Schutz). */
 const MAX_RESULT_ROWS = 200;
@@ -102,9 +102,11 @@ export const listBookings = (filter: BookingFilter) => {
     documentField2: booking.documentField2,
   }));
 
+  const warnung = datasetWarning(dataset);
   return {
     count: matched.length,
     angezeigt: items.length,
+    ...(warnung ? { datenstandWarnung: warnung } : {}),
     ...(matched.length > items.length
       ? {
           hinweis:

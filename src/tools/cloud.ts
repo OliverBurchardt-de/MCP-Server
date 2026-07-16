@@ -361,20 +361,30 @@ export class CloudTools {
       clientName,
       input.fiscalYearId,
       fiscalYear,
-      result.postings
+      result.postings,
+      {
+        totalCount: result.totalCount,
+        truncated: result.truncated,
+        parseErrors: result.parseErrors,
+      }
     );
     datevStore.set(dataset, `${input.clientId}:${input.fiscalYearId}`);
 
+    const { complete, truncated, parseErrors, loadedCount, totalCount } =
+      dataset.provenance;
     return {
       status: 'geladen',
       mandant: input.clientId,
       mandantName: clientName ?? null,
       wirtschaftsjahr: input.fiscalYearId,
-      buchungen: dataset.bookings.length,
-      gesamtAnzahl: result.totalCount,
-      abgeschnitten: result.truncated,
-      hinweis:
-        'Die Buchungen sind jetzt geladen. Fragen können mit get_account_balance, get_open_items, list_bookings und search_documents beantwortet werden.',
+      buchungen: loadedCount,
+      gesamtAnzahl: totalCount,
+      vollstaendig: complete,
+      abgeschnitten: truncated,
+      ...(parseErrors > 0 ? { nichtLesbareZeilen: parseErrors } : {}),
+      hinweis: complete
+        ? 'Die Buchungen sind jetzt vollständig geladen. Fragen können mit get_account_balance, get_open_items, list_bookings und search_documents beantwortet werden.'
+        : `ACHTUNG: Der Datensatz ist UNVOLLSTÄNDIG (${truncated ? 'wegen der Mengenobergrenze abgeschnitten' : ''}${truncated && parseErrors > 0 ? '; ' : ''}${parseErrors > 0 ? `${parseErrors} Zeile(n) nicht lesbar` : ''}). Auswertungen können unvollständig sein — dies dem Nutzer mitteilen und Ergebnisse nicht als vollständig darstellen.`,
     };
   }
 

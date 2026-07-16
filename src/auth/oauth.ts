@@ -15,6 +15,9 @@ import crypto from 'node:crypto';
 import type { DatevConfig } from '../config.js';
 import type { StoredTokens } from './token-store.js';
 
+/** Zeitlimit für einen Token-Austausch (Code-Einlösung/Refresh). */
+const TOKEN_REQUEST_TIMEOUT_MS = 30_000;
+
 /**
  * Signatur der globalen `fetch`-Funktion.
  *
@@ -104,7 +107,8 @@ const toStoredTokens = (response: TokenResponse): StoredTokens => ({
   refreshToken: response.refresh_token,
   expiresAt: Date.now() + (response.expires_in ?? 300) * 1000,
   scope: response.scope,
-  idToken: response.id_token,
+  // Das ID-Token wird bewusst NICHT übernommen/persistiert (aktuell ungenutzt;
+  // weniger sensible Daten auf der Platte).
 });
 
 /**
@@ -134,6 +138,10 @@ const requestTokens = async (
       Accept: 'application/json',
     },
     body: body.toString(),
+    // Eigenes Zeitlimit für den Token-Austausch: Ein hängender Request darf den
+    // Login-Vorgang nicht unbegrenzt offen halten (der Callback-Server-Timeout
+    // beendet nur den Listener, nicht einen laufenden Token-Request).
+    signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
   });
 
   const text = await response.text();

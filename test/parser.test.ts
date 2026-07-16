@@ -27,6 +27,20 @@ describe('parseDatevExtfFile', () => {
     expect(dataset.bookings[8]?.documentField2).toBe('Küche Öl');
     expect(dataset.bookings[9]?.bookingText).toContain('Ähre');
   });
+
+  it('kennzeichnet einen vollständigen Datei-Import in der Provenance', () => {
+    const dataset = parseDatevExtfFile(fixturePath);
+    expect(dataset.provenance.complete).toBe(true);
+    expect(dataset.provenance.truncated).toBe(false);
+    expect(dataset.provenance.parseErrors).toBe(0);
+    expect(dataset.provenance.loadedCount).toBe(dataset.bookings.length);
+  });
+
+  it('lehnt nicht-reguläre Dateien (z. B. ein Verzeichnis) ab', () => {
+    expect(() => parseDatevExtfFile(path.resolve('test/fixtures'))).toThrow(
+      /reguläre Dateien/
+    );
+  });
 });
 
 describe('parseDatevExtfFile with official EXTF header (Formatversion 700)', () => {
