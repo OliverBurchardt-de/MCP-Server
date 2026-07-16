@@ -831,6 +831,12 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
     expect(datevAccountToDisplay(123456789, 0)).toBe('123456789');
   });
 
+  it('bestätigt die echten Länge-6-Rohnummern (Mandant 13481)', () => {
+    // Padding 2 (= 8 − 6). Sachkonto 8-stellig, Personenkonto 9-stellig.
+    expect(datevAccountToDisplay(12000000, 2)).toBe('120000'); // Bank (Sachkonto)
+    expect(datevAccountToDisplay(700000000, 2)).toBe('7000000'); // Kreditor
+  });
+
   it('erkennt Personenkonten auch bei Sachkontenlänge 6', () => {
     // Debitor 1234567 (roh 123456700), Kreditor 7000000 (roh 700000000).
     const dataset = buildCloudDataset(
