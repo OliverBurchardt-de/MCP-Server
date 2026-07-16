@@ -69,7 +69,12 @@ describe('FileTokenStore', () => {
     store.save({ accessToken: 'a', refreshToken: 'r', expiresAt: 123 });
 
     expect(store.load()).toMatchObject({ accessToken: 'a', refreshToken: 'r' });
-    expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    // POSIX-Dateirechte (0600) nur auf Unix/macOS prüfen. Windows kennt keine
+    // POSIX-Bits (Node meldet dort 0666) und schützt die Datei stattdessen über
+    // das Benutzerkonto — der Code setzt den Modus trotzdem plattformübergreifend.
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+    }
 
     store.clear();
     expect(store.load()).toBeUndefined();
