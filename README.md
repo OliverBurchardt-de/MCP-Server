@@ -13,9 +13,12 @@ der Claude Fragen zu DATEV-Buchhaltungsdaten beantworten lässt — aus
 | **[docs/SANDBOX-REGISTRIERUNG.md](docs/SANDBOX-REGISTRIERUNG.md)** | Klick-für-Klick: App im DATEV-Entwicklerportal registrieren (Client ID/Secret).                                     |
 | **[docs/EINRICHTUNG-WINDOWS.md](docs/EINRICHTUNG-WINDOWS.md)**     | Klick-für-Klick: DATEV-MCP unter Windows in Claude Desktop einrichten und erste Sandbox-Anmeldung.                  |
 | **[docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md)**                     | Entwickler — was/warum/wie: Entscheidungen, Modul-Durchgang, OAuth- und Job-Ablauf, Erweiterungsleitfaden, Glossar. |
+| **[docs/ARCHITEKTURENTSCHEIDUNGEN.md](docs/ARCHITEKTURENTSCHEIDUNGEN.md)** | Entscheidungslog — warum es so gebaut ist (inkl. Vertriebsperspektive/Modell B).                            |
 | **[docs/DATEV-PORTAL-NOTIZEN.md](docs/DATEV-PORTAL-NOTIZEN.md)**   | Verifizierte API-/OAuth-Fakten als Referenz.                                                                        |
 | **[docs/reference/KLARDATEN-ANALYSE.md](docs/reference/KLARDATEN-ANALYSE.md)** | Analyse des Klardaten-MCP: Ressourcen-Landkarte für das DATEVconnect-Modul, ID-Formate.                 |
 | **[docs/ONBOARDING-PRODUKTION.md](docs/ONBOARDING-PRODUKTION.md)** | Checkliste für den Weg in den Echtbetrieb.                                                                          |
+| **[docs/BETRIEB-REMOTE-BRIEFING.md](docs/BETRIEB-REMOTE-BRIEFING.md)** | IT-Briefing für den Fernzugriff-Betrieb (Server, Domain, TLS, Türsteher).                                       |
+| **[docs/ABNAHME-PRUEFPROTOKOLL.md](docs/ABNAHME-PRUEFPROTOKOLL.md)** | Abnahme-Prüfprotokoll: automatische + Live-Sandbox-Wertprüfung.                                                   |
 
 ## Funktionsumfang
 
