@@ -15,6 +15,10 @@
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import {
+  createLocalContextFactory,
+  type RequestContext,
+} from './context/context.js';
 import { getAccountBalanceSchema } from './tools/balance.js';
 import { listBookings, listBookingsSchema } from './tools/bookings.js';
 import { loadDatevFile, loadDatevFileSchema } from './tools/load.js';
@@ -129,6 +133,11 @@ export const createServer = () => {
   });
 
   const cloud = new CloudTools();
+  // Jede Tool-Ausführung erhält einen expliziten Anfrage-Kontext (Kanzlei,
+  // Nutzer, Mandanten-Allowlist). Im stdio-Betrieb liefert die lokale Fabrik
+  // den festen Einzelplatz-Principal; der Remote-Betrieb ersetzt nur diese
+  // Fabrik durch den Kontext der authentifizierten Verbindung.
+  const nextContext: () => RequestContext = createLocalContextFactory();
 
   server.registerResource(
     'datev-hilfe',
@@ -154,7 +163,7 @@ export const createServer = () => {
         path: z.string().min(1),
       },
     },
-    async ({ path }) => safe(() => loadDatevFile({ path }))
+    async ({ path }) => safe(() => loadDatevFile(nextContext(), { path }))
   );
 
   server.registerTool(
@@ -176,7 +185,7 @@ export const createServer = () => {
       },
     },
     async ({ account, dataset }) =>
-      safe(() => cloud.accountBalance({ account, dataset }))
+      safe(() => cloud.accountBalance(nextContext(), { account, dataset }))
   );
 
   server.registerTool(
@@ -201,7 +210,7 @@ export const createServer = () => {
         maxResults: z.number().int().min(1).max(200).optional(),
       },
     },
-    async (input) => safe(() => getOpenItems(input))
+    async (input) => safe(() => getOpenItems(nextContext(), input))
   );
 
   server.registerTool(
@@ -233,7 +242,7 @@ export const createServer = () => {
         text: z.string().max(200).optional(),
       },
     },
-    async (input) => safe(() => listBookings(input))
+    async (input) => safe(() => listBookings(nextContext(), input))
   );
 
   server.registerTool(
@@ -253,7 +262,7 @@ export const createServer = () => {
       },
     },
     async ({ query, dataset }) =>
-      safe(() => searchDocuments({ query, dataset }))
+      safe(() => searchDocuments(nextContext(), { query, dataset }))
   );
 
   server.registerTool(
@@ -264,7 +273,7 @@ export const createServer = () => {
         'Zeigt Umgebung (Sandbox/Produktion), ob die App konfiguriert und ein Nutzer angemeldet ist, sowie die geladenen Datensätze.',
       inputSchema: {},
     },
-    async () => safe(() => cloud.status())
+    async () => safe(() => cloud.status(nextContext()))
   );
 
   server.registerTool(
@@ -286,7 +295,7 @@ export const createServer = () => {
         'Listet die Mandanten, für die der angemeldete DATEV-Nutzer berechtigt ist. Liefert die clientId (Format Beraternummer-Mandantennummer) für alle weiteren Tools.',
       inputSchema: datevListClientsSchema,
     },
-    async (input) => safe(() => cloud.listClients(input))
+    async (input) => safe(() => cloud.listClients(nextContext(), input))
   );
 
   server.registerTool(
@@ -297,7 +306,7 @@ export const createServer = () => {
         'Listet die verfügbaren Wirtschaftsjahre eines Mandanten (fiscalYearId als Zahl JJJJMMTT) inkl. Beginn/Ende und Kontenrahmen.',
       inputSchema: datevListFiscalYearsSchema,
     },
-    async (input) => safe(() => cloud.listFiscalYears(input))
+    async (input) => safe(() => cloud.listFiscalYears(nextContext(), input))
   );
 
   server.registerTool(
@@ -308,7 +317,7 @@ export const createServer = () => {
         'Lädt alle Buchungen eines Wirtschaftsjahres aus der DATEV-Cloud in den Arbeitsspeicher (DATEV bereitet die Daten asynchron auf — bei Status "in_arbeit" dieselbe Anfrage nach ~30 Sekunden wiederholen). Danach arbeiten get_account_balance, get_open_items, list_bookings und search_documents auf den Live-Daten.',
       inputSchema: datevLoadFromCloudSchema,
     },
-    async (input) => safe(() => cloud.loadFromCloud(input))
+    async (input) => safe(() => cloud.loadFromCloud(nextContext(), input))
   );
 
   server.registerTool(
@@ -319,7 +328,7 @@ export const createServer = () => {
         'Ruft die Summen- und Saldenliste eines Wirtschaftsjahres direkt aus der DATEV-Cloud ab (inkl. EB-Werten und Monatswerten). Über Kontonummern-Filter eingrenzen; Ausgabe ist auf 200 Zeilen begrenzt.',
       inputSchema: datevGetSumsAndBalancesSchema,
     },
-    async (input) => safe(() => cloud.getSumsAndBalances(input))
+    async (input) => safe(() => cloud.getSumsAndBalances(nextContext(), input))
   );
 
   return server;

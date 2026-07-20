@@ -22,6 +22,14 @@ import { loadDatevFile } from '../src/tools/load.js';
 import { getOpenItems } from '../src/tools/openItems.js';
 import { searchDocuments } from '../src/tools/search.js';
 import { datasetWarning, datevStore } from '../src/store/memory.js';
+import type { RequestContext } from '../src/context/context.js';
+
+/** Fester Test-Kontext (Kanzlei/Nutzer) für kontextgebundene Store-/Tool-Aufrufe. */
+const ctx: RequestContext = {
+  principalId: 'test-nutzer',
+  organizationId: 'test-kanzlei',
+  requestId: 'test-request',
+};
 
 const makeConfig = (overrides: Partial<DatevConfig> = {}): DatevConfig => ({
   ...loadConfig({
@@ -261,12 +269,12 @@ describe('Datenvollständigkeit (Provenance)', () => {
       ],
       { truncated: true, totalCount: 99999 }
     );
-    datevStore.set(partial, 'k');
+    datevStore.set(ctx, partial, 'k');
 
-    expect(String(listBookings({}).datenstandWarnung)).toContain(
+    expect(String(listBookings(ctx, {}).datenstandWarnung)).toContain(
       'UNVOLLSTÄNDIG'
     );
-    expect(String(getOpenItems({}).datenstandWarnung)).toContain(
+    expect(String(getOpenItems(ctx, {}).datenstandWarnung)).toContain(
       'UNVOLLSTÄNDIG'
     );
   });
@@ -563,7 +571,7 @@ describe('CloudTools.accountBalance', () => {
       { accountLength: 4, accountSystem: '03' },
       postings
     );
-    datevStore.set(dataset, '455148-1:20230101');
+    datevStore.set(ctx, dataset, '455148-1:20230101');
   };
 
   it('returns DATEVs authoritative balance and confirms the reconciliation', async () => {
@@ -579,7 +587,7 @@ describe('CloudTools.accountBalance', () => {
     );
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.accountBalance({ account: '1200' });
+    const result = await cloud.accountBalance(ctx, { account: '1200' });
 
     expect(result.konto).toBe(1200);
     expect(result.saldo).toBe(-70836.64);
@@ -603,7 +611,7 @@ describe('CloudTools.accountBalance', () => {
     );
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.accountBalance({ account: '1200' });
+    const result = await cloud.accountBalance(ctx, { account: '1200' });
     const verprobung = result.verprobung as Record<string, unknown>;
 
     // Verbindlich bleibt DATEVs Saldo; die Kontrolle weicht ab und warnt.
@@ -639,7 +647,7 @@ describe('CloudTools.accountBalance', () => {
     );
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.accountBalance({ account: '1200' });
+    const result = await cloud.accountBalance(ctx, { account: '1200' });
 
     expect(result.konto).toBe(1200);
     expect(result.saldo).toBe(-70836.64);
@@ -662,7 +670,7 @@ describe('CloudTools.accountBalance', () => {
     );
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.accountBalance({ account: '1200' });
+    const result = await cloud.accountBalance(ctx, { account: '1200' });
 
     expect(result.gefunden).toBe(false);
   });
@@ -685,7 +693,7 @@ describe('Externe Review-Fixes', () => {
       { accountLength, accountSystem: '03' },
       postings
     );
-    datevStore.set(dataset, key);
+    datevStore.set(ctx, dataset, key);
   };
 
   it('Fix 1: gibt beim Monatswert das Soll/Haben-Kennzeichen mit', async () => {
@@ -709,7 +717,7 @@ describe('Externe Review-Fixes', () => {
     );
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.getSumsAndBalances({
+    const result = await cloud.getSumsAndBalances(ctx, {
       clientId: '455148-1',
       fiscalYearId: 20230101,
       month: 3,
@@ -729,13 +737,13 @@ describe('Externe Review-Fixes', () => {
     }));
     loadDs(many);
 
-    const bookings = listBookings({});
+    const bookings = listBookings(ctx, {});
     expect(bookings.count).toBe(250);
     expect(bookings.angezeigt).toBe(200);
     expect(bookings.items).toHaveLength(200);
     expect(String(bookings.hinweis)).toContain('gekürzt');
 
-    const search = searchDocuments({ query: 'Beleg' });
+    const search = searchDocuments(ctx, { query: 'Beleg' });
     expect(search.count).toBe(250);
     expect(search.angezeigt).toBe(200);
   });
@@ -752,7 +760,7 @@ describe('Externe Review-Fixes', () => {
       },
     ]);
 
-    const result = getOpenItems({});
+    const result = getOpenItems(ctx, {});
     expect(result.count).toBe(2);
     const debtor = result.items.find((item) => item.account === '10000');
     const creditor = result.items.find((item) => item.account === '70000');
@@ -783,7 +791,7 @@ describe('Externe Review-Fixes', () => {
     });
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.listFiscalYears({ clientId: '455148-1' });
+    const result = await cloud.listFiscalYears(ctx, { clientId: '455148-1' });
     const wj = result.wirtschaftsjahre as Array<Record<string, unknown>>;
 
     expect(wj).toHaveLength(14);
@@ -794,13 +802,14 @@ describe('Externe Review-Fixes', () => {
 
   it('Fix 5: meldet im Datei-Modus ein unbekanntes Konto als gefunden:false', async () => {
     loadDatevFile(
+      ctx,
       { path: path.resolve('test/fixtures/sample.extf') },
       path.resolve('test/fixtures'),
       true
     );
     const cloud = new CloudTools(makeConfig());
 
-    const result = await cloud.accountBalance({ account: '99999999' });
+    const result = await cloud.accountBalance(ctx, { account: '99999999' });
     expect(result.gefunden).toBe(false);
     expect(result.saldo).toBeUndefined();
   });
@@ -811,7 +820,7 @@ describe('Externe Review-Fixes', () => {
       { accountNumber: 85000000, amountDebit: 2 }, // ohne Datum
     ]);
 
-    const result = listBookings({ from: '2026-06-01' });
+    const result = listBookings(ctx, { from: '2026-06-01' });
     expect(result.count).toBe(1);
     expect(result.items[0]?.account).toBe('8500');
   });
@@ -881,10 +890,10 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
         },
       ]
     );
-    datevStore.set(dataset, '13540:20250101');
+    datevStore.set(ctx, dataset, '13540:20250101');
     expect(dataset.header.accountLength).toBe(5);
 
-    const result = getOpenItems({});
+    const result = getOpenItems(ctx, {});
     expect(result.count).toBe(2);
     expect(
       result.items.find((item) => item.account === '100005')?.accountType
@@ -934,10 +943,10 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
         },
       ]
     );
-    datevStore.set(dataset, 'l6');
+    datevStore.set(ctx, dataset, 'l6');
     expect(dataset.header.accountLength).toBe(6);
 
-    const result = getOpenItems({});
+    const result = getOpenItems(ctx, {});
     expect(
       result.items.find((item) => item.account === '1234567')?.accountType
     ).toBe('debtor');
@@ -956,7 +965,7 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
       { accountLength: 8, accountSystem: '03' },
       [{ accountNumber: 12345678, amountCredit: 1000, date: '2025-12-31' }]
     );
-    datevStore.set(dataset, 'l8');
+    datevStore.set(ctx, dataset, 'l8');
     expect(dataset.header.accountLength).toBe(8);
 
     const susa = JSON.stringify({
@@ -970,7 +979,7 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
     );
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.accountBalance({ account: '12345678' });
+    const result = await cloud.accountBalance(ctx, { account: '12345678' });
     expect(result.konto).toBe(12345678);
     expect(result.saldo).toBe(-1000);
     expect(
@@ -988,7 +997,7 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
       { accountLength: 4, accountSystem: '03' },
       [{ accountNumber: 12000000, amountCredit: 70836.64, date: '2023-12-31' }]
     );
-    datevStore.set(dataset, '455148-1:20230101');
+    datevStore.set(ctx, dataset, '455148-1:20230101');
     const susaTechnisch = JSON.stringify({
       accountNumber: 12000000,
       caption: 'Aareal Bank',
@@ -1000,7 +1009,7 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
     );
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.accountBalance({ account: '1200' });
+    const result = await cloud.accountBalance(ctx, { account: '1200' });
 
     expect(result.konto).toBe(1200);
     expect(result.saldo).toBe(-70836.64);
@@ -1037,7 +1046,7 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
     );
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.getSumsAndBalances({
+    const result = await cloud.getSumsAndBalances(ctx, {
       clientId: '455148-1',
       fiscalYearId: 20230101,
       accountFrom: 1000,
@@ -1070,9 +1079,9 @@ describe('Technisches Kontonummern-Format (Sachkontenlänge-abhängig)', () => {
         },
       ]
     );
-    datevStore.set(dataset, 'k');
+    datevStore.set(ctx, dataset, 'k');
 
-    const result = getOpenItems({});
+    const result = getOpenItems(ctx, {});
 
     expect(result.count).toBe(2);
     expect(
@@ -1102,7 +1111,7 @@ describe('SuSa-Timeout-Härtung (Option B)', () => {
     });
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.getSumsAndBalances({
+    const result = await cloud.getSumsAndBalances(ctx, {
       clientId: '455148-1',
       fiscalYearId: 20230101,
     });
@@ -1121,13 +1130,13 @@ describe('SuSa-Timeout-Härtung (Option B)', () => {
       { accountLength: 4, accountSystem: '03' },
       [{ accountNumber: 12000000, amountCredit: 70836.64, date: '2023-12-31' }]
     );
-    datevStore.set(dataset, '455148-1:20230101');
+    datevStore.set(ctx, dataset, '455148-1:20230101');
     const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => {
       throw timeoutError();
     });
     const cloud = new CloudTools(config, fetchMock as unknown as FetchLike);
 
-    const result = await cloud.accountBalance({ account: '1200' });
+    const result = await cloud.accountBalance(ctx, { account: '1200' });
 
     expect(result.status).toBe('zeitüberschreitung');
     expect(String(result.hinweis)).toContain('datev_load_from_cloud');

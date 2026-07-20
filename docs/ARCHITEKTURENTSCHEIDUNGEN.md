@@ -153,14 +153,24 @@ Format je Punkt: **Entscheidung · Begründung · Verworfene Alternative · Kons
 - **Offen (bei DATEV zu bestätigen):** Hardware-Login (Stick) in Produktion
   erlaubt? Zusätzliche Kosten? (Sandbox kennt nur Testnutzer „Test6".)
 
-### 5.3 Sitzungs-Trennung
-- **Entscheidung:** Jetzt pragmatisch (aktiver Datensatz + optionaler
-  `dataset`-Schlüssel je Abfrage); die **volle** Isolation je Nutzer/Sitzung wird
-  mit dem Fernzugriff gebaut.
-- **Begründung:** Für den Einzel-Kanzlei-Betrieb genügt der pragmatische Stand;
-  echte Mehrbenutzer-Trennung gehört zum Remote-Umbau.
-- **Konsequenz:** Kein Datensatz trifft versehentlich den falschen Mandanten;
-  der Ausbau ist vorgezeichnet.
+### 5.3 Sitzungs-Trennung — Phase 1 umgesetzt (Kontext-Architektur)
+- **Entscheidung (umgesetzt):** Jede Tool-Ausführung läuft mit einem expliziten
+  **RequestContext** (`principalId` = Nutzer, `organizationId` = Kanzlei,
+  `requestId`, optionale Mandanten-Allowlist). Der Datensatz-Speicher ist
+  **kanzlei-gebunden** (Mitarbeitende teilen geladene Daten), der „aktive
+  Datensatz" ist **pro Nutzer** (niemand verstellt dem anderen den Kontext).
+  Status-/Fehlermeldungen nennen nur die für den Anfragenden sichtbaren
+  Schlüssel. `DATEV_ALLOWED_CLIENTS` erzwingt serverseitig, welche Mandanten
+  gelistet, geladen und abgefragt werden dürfen (`assertClientAllowed` vor
+  jedem DATEV-Aufruf) — unabhängig von Modell-Entscheidungen.
+- **Begründung:** Kernforderung beider externer Reviews; Voraussetzung für den
+  Remote-Mehrbenutzerbetrieb. Im lokalen stdio-Betrieb liefert eine Fabrik den
+  festen Einzelplatz-Principal — der Remote-Betrieb ersetzt **nur die Fabrik**
+  (Kontext aus der authentifizierten Verbindung), Tools/Store/Autorisierung
+  bleiben unverändert.
+- **Noch offen (Phase 2/3):** Eingehende MCP-Authentifizierung (getrennt vom
+  DATEV-OAuth), mehrbenutzerfähiger verschlüsselter Token-Speicher, per-Nutzer
+  Login-Zustand, HTTPS-Transport.
 
 ---
 

@@ -14,7 +14,8 @@
  * Methode `accountBalance`).
  */
 import { z } from 'zod';
-import { datevStore } from '../store/memory.js';
+import type { RequestContext } from '../context/context.js';
+import { datasetWarning, datevStore } from '../store/memory.js';
 import type { DatevBooking } from '../parser/types.js';
 
 /** Eingabeschema: die Kontonummer als Ziffernfolge (optional gezielter Datensatz). */
@@ -147,18 +148,26 @@ export const computeAccountBalance = (
 /**
  * Berechnet den Saldo eines Kontos aus dem aktiven Datensatz (Datei-Modus).
  *
+ * @param ctx - Anfrage-Kontext (Kanzlei/Nutzer-Bindung des Store-Zugriffs).
  * @param account - Kontonummer.
- * @returns Objekt mit `balance`, `bookingCount` und `lastBookingDate`.
+ * @returns Objekt mit `balance`, `bookingCount` und `lastBookingDate`; bei
+ *   unvollständigem Datensatz zusätzlich `datenstandWarnung` — ein Saldo aus
+ *   einem Teilbestand darf nie unkommentiert erscheinen.
  * @remarks Für Cloud-Daten sollte stattdessen der autoritative Weg über
  *   `CloudTools.accountBalance` genutzt werden (DATEV-Summen-/Saldenliste).
  */
-export const getAccountBalance = ({
-  account,
-  dataset: datasetKey,
-}: {
-  account: string;
-  dataset?: string;
-}): AccountBalanceResult => {
-  const dataset = datevStore.get(datasetKey);
-  return computeAccountBalance(dataset.bookings, account);
+export const getAccountBalance = (
+  ctx: RequestContext,
+  {
+    account,
+    dataset: datasetKey,
+  }: {
+    account: string;
+    dataset?: string;
+  }
+): AccountBalanceResult & { datenstandWarnung?: string } => {
+  const dataset = datevStore.get(ctx, datasetKey);
+  const result = computeAccountBalance(dataset.bookings, account);
+  const warnung = datasetWarning(dataset);
+  return warnung ? { ...result, datenstandWarnung: warnung } : result;
 };

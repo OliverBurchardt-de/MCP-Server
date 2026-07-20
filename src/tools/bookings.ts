@@ -7,7 +7,8 @@
  * Buchungstext und in den Belegfeldern.
  */
 import { z } from 'zod';
-import type { BookingFilter } from '../parser/types.js';
+import type { RequestContext } from '../context/context.js';
+import type { BookingFilter, DatevBooking } from '../parser/types.js';
 import { datasetWarning, datevStore } from '../store/memory.js';
 
 /** Obergrenze der zurückgegebenen Buchungen (Kontext-Schutz). */
@@ -40,7 +41,7 @@ export const listBookingsSchema = {
 /** Prüft, ob eine Buchung alle gesetzten Filterkriterien erfüllt. */
 const matchesFilter = (
   filter: BookingFilter,
-  booking: ReturnType<typeof datevStore.get>['bookings'][number]
+  booking: DatevBooking
 ): boolean => {
   if (
     filter.account &&
@@ -91,8 +92,11 @@ const matchesFilter = (
  * @returns Anzahl und Liste der passenden Buchungen (auf die für Fragen
  *   relevanten Felder reduziert).
  */
-export const listBookings = (filter: BookingFilter & { dataset?: string }) => {
-  const dataset = datevStore.get(filter.dataset);
+export const listBookings = (
+  ctx: RequestContext,
+  filter: BookingFilter & { dataset?: string }
+) => {
+  const dataset = datevStore.get(ctx, filter.dataset);
   const matched = dataset.bookings
     .filter((booking) => matchesFilter(filter, booking))
     .sort((left, right) => left.bookingDate.localeCompare(right.bookingDate));

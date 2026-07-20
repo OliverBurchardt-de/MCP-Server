@@ -14,6 +14,7 @@
  * DATEV-Cloud. Die Ausgabe trägt daher einen entsprechenden Hinweis.
  */
 import { z } from 'zod';
+import type { RequestContext } from '../context/context.js';
 import { getPersonAccountType } from '../parser/extf.js';
 import type { DatevBooking, OpenItem } from '../parser/types.js';
 import { datasetWarning, datevStore } from '../store/memory.js';
@@ -99,20 +100,23 @@ const toPersonPostings = (
  * @returns Gesamt- und angezeigte Anzahl, ein Hinweis zur OPOS-Semantik und die
  *   nach Buchungsdatum sortierten Posten.
  */
-export const getOpenItems = ({
-  overdueOnly,
-  type,
-  referenceDate,
-  maxResults,
-  dataset: datasetKey,
-}: {
-  overdueOnly?: boolean;
-  type?: 'debtor' | 'creditor';
-  referenceDate?: string;
-  maxResults?: number;
-  dataset?: string;
-}) => {
-  const dataset = datevStore.get(datasetKey);
+export const getOpenItems = (
+  ctx: RequestContext,
+  {
+    overdueOnly,
+    type,
+    referenceDate,
+    maxResults,
+    dataset: datasetKey,
+  }: {
+    overdueOnly?: boolean;
+    type?: 'debtor' | 'creditor';
+    referenceDate?: string;
+    maxResults?: number;
+    dataset?: string;
+  }
+) => {
+  const dataset = datevStore.get(ctx, datasetKey);
   const today = referenceDate ?? new Date().toISOString().slice(0, 10);
   const accountLength = dataset.header.accountLength || 4;
 

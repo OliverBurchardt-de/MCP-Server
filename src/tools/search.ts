@@ -7,6 +7,7 @@
  * Rechnung anhand ihrer Nummer zu finden.
  */
 import { z } from 'zod';
+import type { RequestContext } from '../context/context.js';
 import { datasetWarning, datevStore } from '../store/memory.js';
 
 /** Obergrenze der zurückgegebenen Treffer (Kontext-Schutz). */
@@ -29,14 +30,17 @@ export const searchDocumentsSchema = {
  * @param query - Suchbegriff (Groß-/Kleinschreibung wird ignoriert).
  * @returns Anzahl und Liste der Treffer, nach Buchungsdatum sortiert.
  */
-export const searchDocuments = ({
-  query,
-  dataset: datasetKey,
-}: {
-  query: string;
-  dataset?: string;
-}) => {
-  const dataset = datevStore.get(datasetKey);
+export const searchDocuments = (
+  ctx: RequestContext,
+  {
+    query,
+    dataset: datasetKey,
+  }: {
+    query: string;
+    dataset?: string;
+  }
+) => {
+  const dataset = datevStore.get(ctx, datasetKey);
   const needle = query.toLowerCase();
   const matched = dataset.bookings
     .filter((booking) =>

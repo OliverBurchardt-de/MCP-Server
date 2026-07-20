@@ -31,7 +31,11 @@ import type {
   FiscalYearDetails,
   SumsAndBalancesEntry,
 } from '../datev/types.js';
-import { datevStore } from '../store/memory.js';
+import {
+  assertClientAllowed,
+  type RequestContext,
+} from '../context/context.js';
+import { datasetWarning, datevStore } from '../store/memory.js';
 import { computeAccountBalance } from './balance.js';
 
 /** Obergrenze der in einer Antwort zurückgegebenen Zeilen (Kontext-Schutz). */
@@ -169,7 +173,7 @@ export class CloudTools {
    *
    * @returns Ein Statusobjekt inkl. handlungsleitendem Hinweis für den Nutzer.
    */
-  status(): Record<string, unknown> {
+  status(ctx: RequestContext): Record<string, unknown> {
     const loginState = getLoginState();
     return {
       umgebung: this.config.environment,
@@ -181,7 +185,8 @@ export class CloudTools {
       ...(loginState.status === 'error'
         ? { loginFehler: loginState.message }
         : {}),
-      geladeneDatensaetze: datevStore.list(),
+      // Nur die für DIESEN Nutzer sichtbaren Datensätze seiner Kanzlei.
+      geladeneDatensaetze: datevStore.list(ctx),
       hinweis: this.tokenManager.isLoggedIn()
         ? 'Verbunden. Mit datev_list_clients starten.'
         : 'Nicht angemeldet. Mit datev_login die DATEV-Anmeldung starten (oder mit load_datev_file eine Exportdatei nutzen).',
@@ -217,12 +222,15 @@ export class CloudTools {
    * @param input - Optionaler Namens-/Nummernfilter und Paginierung.
    * @returns Anzahl und Liste der Mandanten inkl. `clientId` für Folge-Tools.
    */
-  async listClients(input: {
-    search?: string;
-    skip?: number;
-    top?: number;
-  }): Promise<Record<string, unknown>> {
-    const clients = await this.http.getJson<CloudClient[]>(
+  async listClients(
+    ctx: RequestContext,
+    input: {
+      search?: string;
+      skip?: number;
+      top?: number;
+    }
+  ): Promise<Record<string, unknown>> {
+    const allClients = await this.http.getJson<CloudClient[]>(
       this.config.accountingClientsBaseUrl,
       '/clients',
       {
@@ -231,6 +239,14 @@ export class CloudTools {
         top: input.top ?? 100,
       }
     );
+
+    // Serverseitige Mandanten-Allowlist: nicht freigegebene Mandanten werden
+    // gar nicht erst aufgeführt (auch nicht als Name/Nummer).
+    const clients = ctx.allowedClients
+      ? allClients.filter(
+          (client) => client.id && ctx.allowedClients?.has(client.id)
+        )
+      : allClients;
 
     return {
       anzahl: clients.length,
@@ -256,9 +272,13 @@ export class CloudTools {
    * @remarks Es werden bis zu 12 Jahre mit Details angereichert; schlägt eine
    *   Detailabfrage fehl, bleibt zumindest die `fiscalYearId` erhalten.
    */
-  async listFiscalYears(input: {
-    clientId: string;
-  }): Promise<Record<string, unknown>> {
+  async listFiscalYears(
+    ctx: RequestContext,
+    input: {
+      clientId: string;
+    }
+  ): Promise<Record<string, unknown>> {
+    assertClientAllowed(ctx, input.clientId);
     const base = this.config.accountingDataExchangeBaseUrl;
     // Dynamische Pfadsegmente URL-kodieren (Defense-in-depth; clientId ist am
     // Tool-Eingang bereits als Beraternr-Mandantennr validiert).
@@ -320,10 +340,14 @@ export class CloudTools {
    * @returns Bei laufendem Job `status: in_arbeit` mit Hinweis, sonst
    *   `status: geladen` mit Buchungsanzahl und Kürzungsinfo.
    */
-  async loadFromCloud(input: {
-    clientId: string;
-    fiscalYearId: number;
-  }): Promise<Record<string, unknown>> {
+  async loadFromCloud(
+    ctx: RequestContext,
+    input: {
+      clientId: string;
+      fiscalYearId: number;
+    }
+  ): Promise<Record<string, unknown>> {
+    assertClientAllowed(ctx, input.clientId);
     const result = await this.jobs.run(input.clientId, input.fiscalYearId);
 
     if (result.status === 'running') {
@@ -368,7 +392,9 @@ export class CloudTools {
         parseErrors: result.parseErrors,
       }
     );
-    datevStore.set(dataset, `${input.clientId}:${input.fiscalYearId}`);
+    datevStore.set(ctx, dataset, `${input.clientId}:${input.fiscalYearId}`, {
+      clientId: input.clientId,
+    });
 
     const { complete, truncated, parseErrors, loadedCount, totalCount } =
       dataset.provenance;
@@ -397,14 +423,18 @@ export class CloudTools {
    * @remarks Die API liefert alle Konten ohne serverseitigen Filter — die
    *   Einschränkung nach Kontonummer/Monat erfolgt daher hier im Server.
    */
-  async getSumsAndBalances(input: {
-    clientId: string;
-    fiscalYearId: number;
-    accountFrom?: number;
-    accountTo?: number;
-    accounts?: number[];
-    month?: number;
-  }): Promise<Record<string, unknown>> {
+  async getSumsAndBalances(
+    ctx: RequestContext,
+    input: {
+      clientId: string;
+      fiscalYearId: number;
+      accountFrom?: number;
+      accountTo?: number;
+      accounts?: number[];
+      month?: number;
+    }
+  ): Promise<Record<string, unknown>> {
+    assertClientAllowed(ctx, input.clientId);
     let items: SumsAndBalancesEntry[];
     try {
       ({ items } = await this.http.getNdjson<SumsAndBalancesEntry>(
@@ -496,11 +526,16 @@ export class CloudTools {
    * @remarks Der Saldo wird NIE im Sprachmodell aufsummiert — die verbindliche
    *   Zahl kommt aus DATEVs Summen-/Saldenliste, die Kontrolle aus dem Code.
    */
-  async accountBalance(input: {
-    account: string;
-    dataset?: string;
-  }): Promise<Record<string, unknown>> {
-    const dataset = datevStore.get(input.dataset);
+  async accountBalance(
+    ctx: RequestContext,
+    input: {
+      account: string;
+      dataset?: string;
+    }
+  ): Promise<Record<string, unknown>> {
+    const dataset = datevStore.get(ctx, input.dataset);
+    // Ein unvollständiger Datensatz darf nie einen unkommentierten Saldo liefern.
+    const datenstandWarnung = datasetWarning(dataset);
 
     // Datei-Datensatz: exakte Rechnung aus dem Stapel (verbindlich, da keine
     // DATEV-Summenliste vorliegt). Exakter Konto-Vergleich verhindert die
@@ -514,6 +549,7 @@ export class CloudTools {
         return {
           konto: input.account,
           gefunden: false,
+          ...(datenstandWarnung ? { datenstandWarnung } : {}),
           hinweis:
             'Kein Konto mit dieser Nummer im geladenen Buchungsstapel gefunden. Bitte die Kontonummer und ihre Schreibweise prüfen (Kurzform wie 1200 oder technisches Format wie 12000000); Überblick mit list_bookings.',
         };
@@ -524,6 +560,7 @@ export class CloudTools {
         sollHaben: datei.balance >= 0 ? 'S' : 'H',
         anzahlBuchungen: datei.bookingCount,
         letztesBuchungsdatum: datei.lastBookingDate,
+        ...(datenstandWarnung ? { datenstandWarnung } : {}),
         quelle: 'aus geladenem Buchungsstapel gerechnet (Datei-Import)',
       };
     }
@@ -544,6 +581,9 @@ export class CloudTools {
     const slash = rest.lastIndexOf('/');
     const clientId = rest.slice(0, slash);
     const fiscalYearId = Number.parseInt(rest.slice(slash + 1), 10);
+    // Auch der aus dem Datensatz abgeleitete Mandant unterliegt der Allowlist
+    // (Defense-in-depth; der Store filtert bereits beim Lesen).
+    assertClientAllowed(ctx, clientId);
 
     let items: SumsAndBalancesEntry[];
     try {
@@ -622,6 +662,7 @@ export class CloudTools {
       ebWertSoll: entry.openingBalanceDebit,
       ebWertHaben: entry.openingBalanceCredit,
       letztesBuchungsdatum: stapel.lastBookingDate,
+      ...(datenstandWarnung ? { datenstandWarnung } : {}),
       verprobung: {
         stimmtMitDatevUeberein,
         kontrolleAusBuchungen: round2(stapel.balance),

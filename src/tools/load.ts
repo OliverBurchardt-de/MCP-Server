@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { config } from '../config.js';
+import type { RequestContext } from '../context/context.js';
 import { parseDatevExtfFile } from '../parser/extf.js';
 import { datevStore } from '../store/memory.js';
 
@@ -82,8 +83,9 @@ export const resolveImportPath = (
 
 /**
  * Lädt die Datei aus dem freigegebenen Import-Ordner und legt sie als aktiven
- * Datensatz ab.
+ * Datensatz des anfragenden Nutzers ab (kanzlei-gebunden).
  *
+ * @param ctx - Anfrage-Kontext (bestimmt Kanzlei und Nutzer im Store).
  * @param path - Dateiname (oder Pfad) relativ zum Import-Ordner; absolute Pfade
  *   müssen innerhalb des Import-Ordners liegen.
  * @param baseDir - Freigegebener Import-Ordner (Standard {@link config.importBaseDir});
@@ -91,13 +93,14 @@ export const resolveImportPath = (
  * @returns Zusammenfassung des geladenen Datensatzes.
  */
 export const loadDatevFile = (
+  ctx: RequestContext,
   { path: userPath }: { path: string },
   baseDir: string = config.importBaseDir,
   allowLegacy: boolean = config.allowLegacyFormat
 ) => {
   const resolved = resolveImportPath(userPath, baseDir);
   const dataset = parseDatevExtfFile(resolved, allowLegacy);
-  datevStore.set(dataset);
+  datevStore.set(ctx, dataset);
 
   return {
     clientNumber: dataset.header.clientNumber,
