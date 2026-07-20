@@ -7,6 +7,7 @@
  */
 import type { DatevConfig } from '../config.js';
 import { refreshAccessToken, type FetchLike } from './oauth.js';
+import type { TokenStoreLike } from './token-repository.js';
 import { FileTokenStore, type StoredTokens } from './token-store.js';
 
 /**
@@ -36,20 +37,21 @@ export class NotLoggedInError extends Error {
 
 /** Kapselt Token-Speicher und -Erneuerung hinter einer einfachen API. */
 export class TokenManager {
-  private readonly store: FileTokenStore;
+  private readonly store: TokenStoreLike;
   /** Aktuell laufende Erneuerung (Single-Flight-Sperre), sonst `undefined`. */
   private refreshInFlight?: Promise<StoredTokens>;
 
   /**
    * @param config - Aktive Konfiguration (liefert u. a. den Token-Ablageort).
    * @param fetchImpl - Injizierbare `fetch`-Implementierung (für Tests).
-   * @param store - Optionaler Token-Store; Standard ist ein {@link FileTokenStore}
-   *   am konfigurierten Pfad.
+   * @param store - Optionaler Token-Store (z. B. die Slot-Sicht der
+   *   verschlüsselten Mehrbenutzer-Ablage); Standard ist ein
+   *   {@link FileTokenStore} am konfigurierten Pfad.
    */
   constructor(
     private readonly config: DatevConfig,
     private readonly fetchImpl: FetchLike = fetch,
-    store?: FileTokenStore
+    store?: TokenStoreLike
   ) {
     this.store = store ?? new FileTokenStore(config.tokenStorePath);
   }

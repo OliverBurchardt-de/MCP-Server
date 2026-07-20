@@ -168,9 +168,36 @@ Format je Punkt: **Entscheidung · Begründung · Verworfene Alternative · Kons
   festen Einzelplatz-Principal — der Remote-Betrieb ersetzt **nur die Fabrik**
   (Kontext aus der authentifizierten Verbindung), Tools/Store/Autorisierung
   bleiben unverändert.
-- **Noch offen (Phase 2/3):** Eingehende MCP-Authentifizierung (getrennt vom
-  DATEV-OAuth), mehrbenutzerfähiger verschlüsselter Token-Speicher, per-Nutzer
-  Login-Zustand, HTTPS-Transport.
+- **Noch offen (Phase 3):** HTTPS-Transport (Streamable HTTP) mit
+  vorgeschalteter Bearer-Prüfung, Remote-OAuth-Callback-Controller,
+  per-Nutzer Login-Zustand des Loopback-Flows.
+
+### 5.4 Authentifizierung & Tokenhaltung — Phase 2 umgesetzt
+- **Entscheidung (umgesetzt):** Vier Bausteine trennen eingehende Anmeldung
+  und DATEV-Zugang und machen die Tokenhaltung mehrbenutzerfähig:
+  1. **Verschlüsselte Token-Ablage** (`EncryptedTokenRepository`): DATEV-Tokens
+     aller Nutzer je Slot (`Kanzlei|Nutzer`) einzeln AES-256-GCM-verschlüsselt;
+     Schlüssel aus `DATEV_TOKEN_KEY` (Secret Store) oder automatischer
+     Schlüsseldatei (0600). Alte Klartext-Datei wird einmalig migriert und
+     danach gelöscht. Manipulation fällt durch den GCM-Auth-Tag auf.
+  2. **Per-Nutzer-Bausteine in CloudTools:** TokenManager/HTTP/Job-Runner
+     werden je Nutzer-Slot gehalten — Anmeldung, Token-Erneuerung
+     (Single-Flight je Nutzer) und Lade-Jobs sind strikt getrennt.
+  3. **`datev_logout`:** löscht die Tokens des anfragenden Nutzers (andere
+     bleiben angemeldet); ehrlicher Hinweis, dass die App-Berechtigung bei
+     DATEV bis zum Entzug in der Kontoverwaltung bestehen bleibt.
+  4. **Trennung der Sicherheitsebenen:** `McpAccessTokenIssuer` stellt eigene,
+     opake Server-Zugangstokens aus (nur SHA-256-Hashes gespeichert,
+     Konstantzeit-Vergleich, Ablauf/Widerruf/Offboarding) — das DATEV-Token
+     ist nie zugleich die Eintrittskarte zum Server.
+     `PendingAuthorizationStore` hält OAuth-Anmeldevorgänge persistent und
+     **einmalig konsumierbar** (Replay-Schutz) für den Remote-Callback.
+- **Begründung:** Direkt aus dem Review vom 20.07. (Phase 2: „Eingehende
+  MCP-Authentifizierung und ausgehendes DATEV-OAuth trennen; verschlüsselter,
+  mehrbenutzerfähiger Token-Store; Logout/Revocation").
+- **Konsequenz:** Phase 3 muss nur noch den HTTP-Transport anbinden und die
+  vorhandenen Bausteine verdrahten (Bearer-Prüfung → Kontext-Fabrik,
+  Callback → PendingAuthorizationStore).
 
 ---
 

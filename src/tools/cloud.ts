@@ -35,6 +35,10 @@ import {
   assertClientAllowed,
   type RequestContext,
 } from '../context/context.js';
+import {
+  EncryptedTokenRepository,
+  tokenSlot,
+} from '../auth/token-repository.js';
 import { datasetWarning, datevStore } from '../store/memory.js';
 import { computeAccountBalance } from './balance.js';
 
@@ -149,11 +153,19 @@ export const datevGetSumsAndBalancesSchema = {
     .describe('Nur der Monatswert dieses Wirtschaftsjahresmonats (1-12)'),
 };
 
+/** Die je Nutzer-Slot gekapselten Bausteine (Tokens, HTTP, Jobs). */
+interface CloudStack {
+  tokenManager: TokenManager;
+  http: DatevHttpClient;
+  jobs: AccountPostingsJobRunner;
+}
+
 /** Stellt die Geschäftslogik hinter den DATEV-Cloud-Tools bereit. */
 export class CloudTools {
-  private readonly tokenManager: TokenManager;
-  private readonly http: DatevHttpClient;
-  private readonly jobs: AccountPostingsJobRunner;
+  /** Verschlüsselte Mehrbenutzer-Token-Ablage (eine Datei je Umgebung). */
+  private readonly tokenRepository: EncryptedTokenRepository;
+  /** Bausteine je Nutzer-Slot — Tokens und laufende Jobs sind nutzergetrennt. */
+  private readonly stacks = new Map<string, CloudStack>();
 
   /**
    * @param config - Aktive Konfiguration; Standard ist die globale {@link config}.
@@ -163,9 +175,46 @@ export class CloudTools {
     private readonly config: DatevConfig = defaultConfig,
     private readonly fetchImpl: FetchLike = fetch
   ) {
-    this.tokenManager = new TokenManager(config, fetchImpl);
-    this.http = new DatevHttpClient(config, this.tokenManager, fetchImpl);
-    this.jobs = new AccountPostingsJobRunner(config, this.http);
+    this.tokenRepository = new EncryptedTokenRepository(
+      config.tokenStorePath.replace(/\.json$/, '') + '.v2.json',
+      {
+        keyBase64: process.env.DATEV_TOKEN_KEY,
+        // Einmalige Übernahme der alten Klartext-Datei (wird danach gelöscht).
+        legacyPath: config.tokenStorePath,
+      }
+    );
+  }
+
+  /**
+   * Liefert die Bausteine des anfragenden Nutzers (Tokens/HTTP/Jobs) —
+   * angelegt beim ersten Zugriff, danach je Slot wiederverwendet.
+   *
+   * @remarks Damit sind DATEV-Anmeldung, Token-Erneuerung (Single-Flight je
+   *   Nutzer) und laufende Lade-Jobs strikt nutzergetrennt; die Tokens liegen
+   *   im Slot `organizationId|principalId` der verschlüsselten Ablage.
+   */
+  private stackFor(ctx: RequestContext): CloudStack {
+    const slot = tokenSlot(ctx);
+    let stack = this.stacks.get(slot);
+    if (!stack) {
+      const tokenManager = new TokenManager(
+        this.config,
+        this.fetchImpl,
+        this.tokenRepository.storeFor(slot)
+      );
+      const http = new DatevHttpClient(
+        this.config,
+        tokenManager,
+        this.fetchImpl
+      );
+      stack = {
+        tokenManager,
+        http,
+        jobs: new AccountPostingsJobRunner(this.config, http),
+      };
+      this.stacks.set(slot, stack);
+    }
+    return stack;
   }
 
   /**
@@ -175,19 +224,20 @@ export class CloudTools {
    */
   status(ctx: RequestContext): Record<string, unknown> {
     const loginState = getLoginState();
+    const { tokenManager } = this.stackFor(ctx);
     return {
       umgebung: this.config.environment,
       appKonfiguriert: Boolean(
         this.config.clientId && this.config.clientSecret
       ),
-      angemeldet: this.tokenManager.isLoggedIn(),
+      angemeldet: tokenManager.isLoggedIn(),
       loginVorgang: loginState.status,
       ...(loginState.status === 'error'
         ? { loginFehler: loginState.message }
         : {}),
       // Nur die für DIESEN Nutzer sichtbaren Datensätze seiner Kanzlei.
       geladeneDatensaetze: datevStore.list(ctx),
-      hinweis: this.tokenManager.isLoggedIn()
+      hinweis: tokenManager.isLoggedIn()
         ? 'Verbunden. Mit datev_list_clients starten.'
         : 'Nicht angemeldet. Mit datev_login die DATEV-Anmeldung starten (oder mit load_datev_file eine Exportdatei nutzen).',
     };
@@ -196,13 +246,15 @@ export class CloudTools {
   /**
    * `datev_login`: startet den OAuth-Flow und liefert die Login-URL.
    *
+   * @param ctx - Anfrage-Kontext; die erhaltenen Tokens landen im Slot dieses
+   *   Nutzers (verschlüsselte Mehrbenutzer-Ablage).
    * @returns Die Anmelde-URL plus eine umgebungsabhängige Anleitung.
    * @throws Error - wenn die App nicht konfiguriert ist (siehe {@link startLoginFlow}).
    */
-  login(): Record<string, unknown> {
+  login(ctx: RequestContext): Record<string, unknown> {
     const authorizeUrl = startLoginFlow(
       this.config,
-      this.tokenManager,
+      this.stackFor(ctx).tokenManager,
       this.fetchImpl
     );
     return {
@@ -213,6 +265,23 @@ export class CloudTools {
           ? ' (Sandbox: Benutzer "Test6" wählen).'
           : ' (SmartLogin oder SmartCard).') +
         ' Nach erfolgreicher Anmeldung zeigt datev_status "angemeldet: true".',
+    };
+  }
+
+  /**
+   * `datev_logout`: verwirft die DATEV-Anmeldung des anfragenden Nutzers.
+   *
+   * @remarks Löscht die Tokens dieses Nutzers aus der verschlüsselten Ablage
+   *   (andere Nutzer bleiben angemeldet). Ehrlicher Hinweis: Das bei DATEV
+   *   registrierte Refresh-Token verfällt dadurch nicht sofort serverseitig —
+   *   vollständiger Entzug erfolgt über die DATEV-Kontoverwaltung.
+   */
+  logout(ctx: RequestContext): Record<string, unknown> {
+    this.stackFor(ctx).tokenManager.clearTokens();
+    return {
+      abgemeldet: true,
+      hinweis:
+        'Die lokale DATEV-Anmeldung dieses Nutzers wurde gelöscht. Für eine neue Verbindung datev_login ausführen. Hinweis: Bei DATEV selbst bleibt die App-Berechtigung bestehen, bis sie in der DATEV-Kontoverwaltung entzogen wird.',
     };
   }
 
@@ -230,7 +299,8 @@ export class CloudTools {
       top?: number;
     }
   ): Promise<Record<string, unknown>> {
-    const allClients = await this.http.getJson<CloudClient[]>(
+    const { http } = this.stackFor(ctx);
+    const allClients = await http.getJson<CloudClient[]>(
       this.config.accountingClientsBaseUrl,
       '/clients',
       {
@@ -279,11 +349,12 @@ export class CloudTools {
     }
   ): Promise<Record<string, unknown>> {
     assertClientAllowed(ctx, input.clientId);
+    const { http } = this.stackFor(ctx);
     const base = this.config.accountingDataExchangeBaseUrl;
     // Dynamische Pfadsegmente URL-kodieren (Defense-in-depth; clientId ist am
     // Tool-Eingang bereits als Beraternr-Mandantennr validiert).
     const clientSeg = encodeURIComponent(input.clientId);
-    const { items: fiscalYearIds } = await this.http.getNdjson<number>(
+    const { items: fiscalYearIds } = await http.getNdjson<number>(
       base,
       `/clients/${clientSeg}/fiscal-years`
     );
@@ -295,7 +366,7 @@ export class CloudTools {
     const enriched = await Promise.all(
       fiscalYearIds.slice(0, DETAIL_LIMIT).map(async (fiscalYearId) => {
         try {
-          const detail = await this.http.getJson<FiscalYearDetails>(
+          const detail = await http.getJson<FiscalYearDetails>(
             base,
             `/clients/${clientSeg}/fiscal-years/${encodeURIComponent(String(fiscalYearId))}`
           );
@@ -348,7 +419,8 @@ export class CloudTools {
     }
   ): Promise<Record<string, unknown>> {
     assertClientAllowed(ctx, input.clientId);
-    const result = await this.jobs.run(input.clientId, input.fiscalYearId);
+    const { http, jobs } = this.stackFor(ctx);
+    const result = await jobs.run(input.clientId, input.fiscalYearId);
 
     if (result.status === 'running') {
       return {
@@ -363,7 +435,7 @@ export class CloudTools {
     let clientName: string | undefined;
     let fiscalYear: FiscalYearDetails | undefined;
     try {
-      const client = await this.http.getJson<CloudClient>(
+      const client = await http.getJson<CloudClient>(
         this.config.accountingClientsBaseUrl,
         `/clients/${clientSeg}`
       );
@@ -372,7 +444,7 @@ export class CloudTools {
       // Name ist nur Komfort — Laden nicht daran scheitern lassen.
     }
     try {
-      fiscalYear = await this.http.getJson<FiscalYearDetails>(
+      fiscalYear = await http.getJson<FiscalYearDetails>(
         this.config.accountingDataExchangeBaseUrl,
         `/clients/${clientSeg}/fiscal-years/${fiscalYearSeg}`
       );
@@ -435,9 +507,10 @@ export class CloudTools {
     }
   ): Promise<Record<string, unknown>> {
     assertClientAllowed(ctx, input.clientId);
+    const { http } = this.stackFor(ctx);
     let items: SumsAndBalancesEntry[];
     try {
-      ({ items } = await this.http.getNdjson<SumsAndBalancesEntry>(
+      ({ items } = await http.getNdjson<SumsAndBalancesEntry>(
         this.config.accountingDataExchangeBaseUrl,
         `/clients/${encodeURIComponent(input.clientId)}/fiscal-years/${encodeURIComponent(String(input.fiscalYearId))}/sums-and-balances`
       ));
@@ -587,7 +660,9 @@ export class CloudTools {
 
     let items: SumsAndBalancesEntry[];
     try {
-      ({ items } = await this.http.getNdjson<SumsAndBalancesEntry>(
+      ({ items } = await this.stackFor(
+        ctx
+      ).http.getNdjson<SumsAndBalancesEntry>(
         this.config.accountingDataExchangeBaseUrl,
         `/clients/${encodeURIComponent(clientId)}/fiscal-years/${encodeURIComponent(String(fiscalYearId))}/sums-and-balances`
       ));

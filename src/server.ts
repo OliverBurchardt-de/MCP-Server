@@ -84,6 +84,7 @@ const HELP_TEXT = `# DATEV MCP-Server — Kurzanleitung
 5. datev_load_from_cloud — lädt alle Buchungen des Wirtschaftsjahres in den Arbeitsspeicher.
    DATEV bereitet die Daten asynchron auf; bei "in_arbeit" dieselbe Anfrage nach ~30 s wiederholen.
 6. Danach beantworten die Analyse-Tools Fragen: get_account_balance, get_open_items, list_bookings, search_documents.
+7. datev_logout — meldet den aktuellen Nutzer ab (löscht dessen gespeicherte Zugangs-Tokens).
 
 ## Direkt aus der Cloud (ohne Laden der Buchungen)
 - datev_get_sums_and_balances — Summen- und Saldenliste inkl. Monatswerte und EB-Werten.
@@ -284,7 +285,18 @@ export const createServer = () => {
         'Startet die Anmeldung bei DATEV (OAuth mit PKCE) und liefert eine URL, die der Nutzer im Browser öffnet. Der Anmeldestatus ist danach über datev_status sichtbar.',
       inputSchema: {},
     },
-    async () => safe(() => cloud.login())
+    async () => safe(() => cloud.login(nextContext()))
+  );
+
+  server.registerTool(
+    'datev_logout',
+    {
+      title: 'DATEV-Abmeldung',
+      description:
+        'Meldet den aktuellen Nutzer von DATEV ab: Die gespeicherten Zugangs-Tokens dieses Nutzers werden gelöscht (andere Nutzer bleiben angemeldet). Danach ist für Live-Daten ein neues datev_login nötig.',
+      inputSchema: {},
+    },
+    async () => safe(() => cloud.logout(nextContext()))
   );
 
   server.registerTool(
