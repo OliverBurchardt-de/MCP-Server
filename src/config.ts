@@ -86,6 +86,53 @@ const ENDPOINTS: Record<
   },
 };
 
+/** Liest einen gültigen TCP-Port; ungültige Werte dürfen keinen Listener öffnen. */
+const parseRedirectPort = (value: string): number => {
+  if (!/^\d{1,5}$/.test(value)) {
+    throw new Error(
+      'DATEV_REDIRECT_PORT muss eine ganze Zahl zwischen 1 und 65535 sein.'
+    );
+  }
+  const port = Number(value);
+  if (port < 1 || port > 65535) {
+    throw new Error('DATEV_REDIRECT_PORT muss zwischen 1 und 65535 liegen.');
+  }
+  return port;
+};
+
+/**
+ * Erzwingt einen rein lokalen OAuth-Callback.
+ *
+ * Authorization Code und `state` dürfen nie an einen externen Host umgeleitet
+ * werden. Der Callback-Listener bindet ausschließlich an IPv4-Loopback, daher
+ * sind nur `localhost` und `127.0.0.1` mit exakt dem konfigurierten Port erlaubt.
+ */
+const parseRedirectUri = (value: string, redirectPort: number): string => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('DATEV_REDIRECT_URI ist keine gültige URL.');
+  }
+
+  const isLoopbackHost =
+    url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  if (
+    url.protocol !== 'http:' ||
+    !isLoopbackHost ||
+    url.port !== String(redirectPort) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      'DATEV_REDIRECT_URI muss eine HTTP-Loopback-URL auf localhost oder 127.0.0.1 mit dem Port aus DATEV_REDIRECT_PORT sein (ohne Zugangsdaten, Query oder Fragment).'
+    );
+  }
+  return url.toString();
+};
+
 /**
  * Baut die {@link DatevConfig} aus Umgebungsvariablen.
  *
@@ -104,7 +151,11 @@ export const loadConfig = (
   const environment: DatevEnvironment =
     env.DATEV_ENV === 'production' ? 'production' : 'sandbox';
   const endpoints = ENDPOINTS[environment];
-  const redirectPort = Number.parseInt(env.DATEV_REDIRECT_PORT ?? '53682', 10);
+  const redirectPort = parseRedirectPort(env.DATEV_REDIRECT_PORT ?? '53682');
+  const redirectUri = parseRedirectUri(
+    env.DATEV_REDIRECT_URI ?? `http://localhost:${redirectPort}/callback`,
+    redirectPort
+  );
 
   return {
     environment,
@@ -113,8 +164,7 @@ export const loadConfig = (
     authorizeUrl: endpoints.authorize,
     tokenUrl: endpoints.token,
     redirectPort,
-    redirectUri:
-      env.DATEV_REDIRECT_URI ?? `http://localhost:${redirectPort}/callback`,
+    redirectUri,
     scopes: (
       env.DATEV_SCOPES ??
       'openid profile offline_access datev:accounting:clients datev:accounting:exchange'

@@ -37,11 +37,16 @@ export type LoginState =
 let currentState: LoginState = { status: 'idle' };
 /** Referenz auf den aktiven Callback-Server (für sauberes Schließen). */
 let activeServer: http.Server | undefined;
+/** Eindeutige Generation des aktiven Flows; verhindert Übernahme durch Alt-Flows. */
+let activeFlowId = 0;
 
 /** Liefert den aktuellen {@link LoginState} (z. B. für das Tool `datev_status`). */
 export const getLoginState = (): LoginState => currentState;
 
-const closeServer = (): void => {
+const closeServer = (flowId?: number): void => {
+  if (flowId !== undefined && flowId !== activeFlowId) {
+    return;
+  }
   activeServer?.close();
   activeServer = undefined;
 };
@@ -78,6 +83,16 @@ const htmlResponse = (title: string, body: string): string =>
   `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head>` +
   `<body style="font-family:sans-serif;max-width:40rem;margin:4rem auto"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></body></html>`;
 
+/** Sicherheitsheader für alle Browserantworten des lokalen Callback-Servers. */
+const CALLBACK_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'Content-Security-Policy':
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+} as const;
+
 /**
  * Startet den lokalen Callback-Server und liefert die DATEV-Login-URL.
  *
@@ -103,6 +118,7 @@ export const startLoginFlow = (
   }
 
   closeServer();
+  const flowId = ++activeFlowId;
 
   const state = createState();
   const { verifier, challenge } = createPkcePair();
@@ -112,13 +128,29 @@ export const startLoginFlow = (
   // Verarbeitung (z. B. paralleler Request), bevor der Server schließt.
   let consumed = false;
 
+  const redirectUrl = new URL(config.redirectUri);
   const server = http.createServer((req, res) => {
+    if (flowId !== activeFlowId) {
+      res.writeHead(409, CALLBACK_HEADERS).end();
+      return;
+    }
+    if (req.method !== 'GET') {
+      res.writeHead(405, { ...CALLBACK_HEADERS, Allow: 'GET' }).end();
+      return;
+    }
+    if (
+      (req.headers.host ?? '').toLowerCase() !== redirectUrl.host.toLowerCase()
+    ) {
+      res.writeHead(400, CALLBACK_HEADERS).end();
+      return;
+    }
+
     const url = new URL(
       req.url ?? '/',
       `http://localhost:${config.redirectPort}`
     );
-    if (url.pathname !== new URL(config.redirectUri).pathname) {
-      res.writeHead(404).end();
+    if (url.pathname !== redirectUrl.pathname) {
+      res.writeHead(404, CALLBACK_HEADERS).end();
       return;
     }
 
@@ -129,7 +161,7 @@ export const startLoginFlow = (
     // unverändert, damit der echte Callback noch ankommen kann.
     const returnedState = url.searchParams.get('state');
     if (!constantTimeEqual(returnedState ?? '', state)) {
-      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(400, CALLBACK_HEADERS);
       res.end(
         htmlResponse(
           'Ungültiger Aufruf',
@@ -140,22 +172,20 @@ export const startLoginFlow = (
     }
 
     if (consumed) {
-      res.writeHead(400).end();
+      res.writeHead(400, CALLBACK_HEADERS).end();
       return;
     }
     consumed = true;
 
     const finish = (ok: boolean, message: string): void => {
-      res.writeHead(ok ? 200 : 400, {
-        'Content-Type': 'text/html; charset=utf-8',
-      });
+      res.writeHead(ok ? 200 : 400, CALLBACK_HEADERS);
       res.end(
         htmlResponse(
           ok ? 'DATEV-Anmeldung erfolgreich' : 'DATEV-Anmeldung fehlgeschlagen',
           `${message} Sie können dieses Fenster schließen.`
         )
       );
-      closeServer();
+      closeServer(flowId);
     };
 
     const error = url.searchParams.get('error');
@@ -183,6 +213,12 @@ export const startLoginFlow = (
 
     exchangeAuthorizationCode(config, code, verifier, fetchImpl)
       .then((tokens) => {
+        // Ein inzwischen neu gestarteter Login darf nicht durch den Abschluss
+        // eines älteren Flows überschrieben werden.
+        if (flowId !== activeFlowId) {
+          res.destroy();
+          return;
+        }
         tokenManager.saveTokens(tokens);
         currentState = { status: 'success', finishedAt: Date.now() };
         finish(
@@ -191,6 +227,10 @@ export const startLoginFlow = (
         );
       })
       .catch((exchangeError: unknown) => {
+        if (flowId !== activeFlowId) {
+          res.destroy();
+          return;
+        }
         const message =
           exchangeError instanceof Error
             ? exchangeError.message
@@ -201,19 +241,32 @@ export const startLoginFlow = (
   });
 
   server.on('error', (serverError) => {
+    if (flowId !== activeFlowId) {
+      return;
+    }
     currentState = {
       status: 'error',
       message: `Callback-Server konnte nicht starten: ${serverError.message}`,
       finishedAt: Date.now(),
     };
-    activeServer = undefined;
+    if (activeServer === server) {
+      activeServer = undefined;
+    }
   });
+
+  // Kleine harte Grenzen gegen langsame oder übergroße lokale Requests.
+  server.requestTimeout = 10_000;
+  server.headersTimeout = 5_000;
+  server.maxHeadersCount = 50;
 
   // Nur auf der Loopback-Adresse lauschen — der Callback ist rein lokal; ein
   // Binden auf alle Schnittstellen würde den Server unnötig im Netz exponieren.
   server.listen(config.redirectPort, '127.0.0.1');
   server.unref();
   setTimeout(() => {
+    if (flowId !== activeFlowId) {
+      return;
+    }
     if (currentState.status === 'waiting') {
       currentState = {
         status: 'error',
@@ -222,7 +275,7 @@ export const startLoginFlow = (
         finishedAt: Date.now(),
       };
     }
-    closeServer();
+    closeServer(flowId);
   }, LOGIN_TIMEOUT_MS).unref();
 
   activeServer = server;

@@ -13,10 +13,13 @@
  */
 import crypto from 'node:crypto';
 import type { DatevConfig } from '../config.js';
+import { readResponseText } from '../http/response.js';
 import type { StoredTokens } from './token-store.js';
 
 /** Zeitlimit für einen Token-Austausch (Code-Einlösung/Refresh). */
 const TOKEN_REQUEST_TIMEOUT_MS = 30_000;
+/** Token-Antworten sind klein; größere Bodies deuten auf Fehlverhalten hin. */
+const MAX_TOKEN_RESPONSE_BYTES = 1024 * 1024;
 
 /**
  * Signatur der globalen `fetch`-Funktion.
@@ -138,13 +141,16 @@ const requestTokens = async (
       Accept: 'application/json',
     },
     body: body.toString(),
+    // Keine Redirects mit dem Basic-Auth-Header verfolgen. Der konfigurierte
+    // DATEV-Endpunkt muss selbst die endgültige Antwort liefern.
+    redirect: 'error',
     // Eigenes Zeitlimit für den Token-Austausch: Ein hängender Request darf den
     // Login-Vorgang nicht unbegrenzt offen halten (der Callback-Server-Timeout
     // beendet nur den Listener, nicht einen laufenden Token-Request).
     signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
   });
 
-  const text = await response.text();
+  const text = await readResponseText(response, MAX_TOKEN_RESPONSE_BYTES);
   if (!response.ok) {
     throw new Error(
       `DATEV-Token-Endpunkt antwortete mit HTTP ${response.status}: ${text.slice(0, 300)}`

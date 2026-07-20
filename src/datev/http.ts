@@ -9,12 +9,38 @@
 import type { DatevConfig } from '../config.js';
 import type { FetchLike } from '../auth/oauth.js';
 import type { TokenManager } from '../auth/token-manager.js';
+import { readResponseText } from '../http/response.js';
 import { datevErrorFromResponse } from './errors.js';
 
 /** Abbruchzeit für einen einzelnen HTTP-Aufruf. */
 const REQUEST_TIMEOUT_MS = 60_000;
 /** Maximale Zahl an Wiederholungen bei 429/503. */
 const MAX_RETRIES = 2;
+/** Maximale dekomprimierte Antwortgröße pro DATEV-Aufruf. */
+const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
+/** Hosts, an die ein DATEV-Bearer-Token übertragen werden darf. */
+const TRUSTED_DATEV_API_HOSTS = new Set([
+  'accounting-clients.api.datev.de',
+  'accounting-data-exchange.api.datev.de',
+]);
+
+/** Baut eine URL nur innerhalb der festgelegten DATEV-Vertrauensgrenze. */
+const trustedDatevUrl = (baseUrl: string, requestPath: string): URL => {
+  const base = new URL(baseUrl);
+  const url = new URL(baseUrl + requestPath);
+  if (
+    base.protocol !== 'https:' ||
+    base.username ||
+    base.password ||
+    !TRUSTED_DATEV_API_HOSTS.has(base.hostname) ||
+    url.origin !== base.origin
+  ) {
+    throw new Error(
+      'Sicherheitsprüfung fehlgeschlagen: Zugangsdaten dürfen nur an freigegebene DATEV-HTTPS-Endpunkte gesendet werden.'
+    );
+  }
+  return url;
+};
 
 /** Rohantwort eines DATEV-Aufrufs (Status, Header, unverarbeiteter Text). */
 export interface DatevResponse {
@@ -61,7 +87,7 @@ export class DatevHttpClient {
       query?: Record<string, string | number | undefined>;
     } = {}
   ): Promise<DatevResponse> {
-    const url = new URL(baseUrl + path);
+    const url = trustedDatevUrl(baseUrl, path);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value !== undefined) {
         url.searchParams.set(key, String(value));
@@ -78,6 +104,8 @@ export class DatevHttpClient {
           'X-DATEV-Client-Id': this.config.clientId,
           Accept: 'application/json, application/x-ndjson',
         },
+        // Credential-tragende Requests dürfen niemals einem Redirect folgen.
+        redirect: 'error',
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 
@@ -96,11 +124,13 @@ export class DatevHttpClient {
         const retryAfterMs = Number.isFinite(retryAfter)
           ? Math.min(Math.max(retryAfter, 0), 30) * 1000
           : 2000 * (attempt + 1);
+        // Body verwerfen, damit die Verbindung vor dem Retry freigegeben wird.
+        await response.body?.cancel();
         await sleep(retryAfterMs);
         continue;
       }
 
-      const text = await response.text();
+      const text = await readResponseText(response, MAX_RESPONSE_BYTES);
       if (!response.ok) {
         throw datevErrorFromResponse(response.status, text);
       }

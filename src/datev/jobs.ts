@@ -22,6 +22,8 @@ const DEFAULT_BUDGET_MS = 45_000;
 const POLL_DELAYS_MS = [1000, 2000, 3000, 5000];
 /** Obergrenze geladener Buchungszeilen, um Speicher/Kontext zu schützen. */
 const MAX_ROWS = 50_000;
+/** Harte Obergrenze gegen manipulierte oder fehlerhafte Paginierungsheader. */
+const MAX_RESULT_PAGES = 500;
 
 /** Möglicher Bearbeitungsstand eines DATEV-Jobs. */
 type JobState = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'DELETED';
@@ -93,7 +95,17 @@ export class AccountPostingsJobRunner {
         `/clients/${clientSeg}/fiscal-years/${fiscalYearSeg}/account-postings`,
         { method: 'POST' }
       );
-      jobId = (JSON.parse(response.text) as { jobId: string }).jobId;
+      const payload = JSON.parse(response.text) as { jobId?: unknown };
+      if (
+        typeof payload.jobId !== 'string' ||
+        payload.jobId.length < 1 ||
+        payload.jobId.length > 512
+      ) {
+        throw new Error(
+          'DATEV lieferte keine gültige Auftragskennung. Der Auftrag wurde nicht gespeichert.'
+        );
+      }
+      jobId = payload.jobId;
       this.pendingJobs.set(key, jobId);
     }
     const jobSeg = encodeURIComponent(jobId);
@@ -138,6 +150,7 @@ export class AccountPostingsJobRunner {
     let parseErrors = 0;
     let page = 1;
     let totalPages = 1;
+    let paginationTruncated = false;
 
     do {
       const {
@@ -158,13 +171,38 @@ export class AccountPostingsJobRunner {
         }
         postings.push(item);
       }
+      const parsedTotalPages = Number.parseInt(
+        headers.get('x-total-pages') ?? '1',
+        10
+      );
       totalPages =
-        Number.parseInt(headers.get('x-total-pages') ?? '1', 10) || 1;
+        Number.isFinite(parsedTotalPages) && parsedTotalPages > 0
+          ? parsedTotalPages
+          : 1;
+      if (totalPages > MAX_RESULT_PAGES) {
+        paginationTruncated = true;
+      }
+
+      const parsedTotalCount = Number.parseInt(
+        headers.get('x-total-count') ?? '',
+        10
+      );
       totalCount =
-        Number.parseInt(headers.get('x-total-count') ?? '', 10) ||
-        postings.length;
+        Number.isFinite(parsedTotalCount) && parsedTotalCount >= 0
+          ? Math.max(totalCount, parsedTotalCount)
+          : Math.max(totalCount, postings.length);
+
+      // Leere Zwischenseiten würden bei einem manipulierten Seitenzähler nur
+      // weitere Requests erzeugen. Sicher abbrechen und Unvollständigkeit melden.
+      if (items.length === 0 && page < totalPages) {
+        paginationTruncated = true;
+        break;
+      }
       page += 1;
-    } while (page <= totalPages && postings.length < MAX_ROWS);
+    } while (
+      page <= Math.min(totalPages, MAX_RESULT_PAGES) &&
+      postings.length < MAX_ROWS
+    );
 
     this.pendingJobs.delete(key);
 
@@ -172,7 +210,7 @@ export class AccountPostingsJobRunner {
       status: 'completed',
       postings: postings.slice(0, MAX_ROWS),
       totalCount,
-      truncated: totalCount > MAX_ROWS,
+      truncated: paginationTruncated || totalCount > postings.length,
       parseErrors,
     };
   }
