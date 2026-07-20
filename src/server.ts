@@ -127,18 +127,27 @@ const HELP_TEXT = `# DATEV MCP-Server — Kurzanleitung
  * @returns Der einsatzbereite {@link McpServer}, den `index.ts` an ein Transport
  *   anbindet.
  */
-export const createServer = () => {
+/** Injektionspunkte für den Fernbetrieb (Standard: lokaler Einzelplatz). */
+export interface CreateServerOptions {
+  /** Kontext je Tool-Aufruf; Standard ist die lokale Einzelplatz-Fabrik. */
+  contextFactory?: () => RequestContext;
+  /** Gemeinsame CloudTools-Instanz (Fernbetrieb: eine je Prozess). */
+  cloud?: CloudTools;
+}
+
+export const createServer = (options: CreateServerOptions = {}) => {
   const server = new McpServer({
     name: 'datev-mcp-server',
     version: '0.2.0',
   });
 
-  const cloud = new CloudTools();
+  const cloud = options.cloud ?? new CloudTools();
   // Jede Tool-Ausführung erhält einen expliziten Anfrage-Kontext (Kanzlei,
   // Nutzer, Mandanten-Allowlist). Im stdio-Betrieb liefert die lokale Fabrik
-  // den festen Einzelplatz-Principal; der Remote-Betrieb ersetzt nur diese
-  // Fabrik durch den Kontext der authentifizierten Verbindung.
-  const nextContext: () => RequestContext = createLocalContextFactory();
+  // den festen Einzelplatz-Principal; der Remote-Betrieb reicht hier den
+  // Kontext der authentifizierten Verbindung herein.
+  const nextContext: () => RequestContext =
+    options.contextFactory ?? createLocalContextFactory();
 
   server.registerResource(
     'datev-hilfe',

@@ -9,7 +9,9 @@
     "lint": "eslint src test eslint.config.js --ext .ts",
     "format": "prettier --write .",
     "prepare": "npm run build",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "start:remote": "node dist/index-remote.js",
+    "add-user": "node dist/scripts/add-user.js"
   },
   "keywords": [
     "datev",

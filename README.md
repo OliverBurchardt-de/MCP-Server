@@ -18,6 +18,7 @@ der Claude Fragen zu DATEV-Buchhaltungsdaten beantworten lässt — aus
 | **[docs/reference/KLARDATEN-ANALYSE.md](docs/reference/KLARDATEN-ANALYSE.md)** | Analyse des Klardaten-MCP: Ressourcen-Landkarte für das DATEVconnect-Modul, ID-Formate.                 |
 | **[docs/ONBOARDING-PRODUKTION.md](docs/ONBOARDING-PRODUKTION.md)** | Checkliste für den Weg in den Echtbetrieb.                                                                          |
 | **[docs/BETRIEB-REMOTE-BRIEFING.md](docs/BETRIEB-REMOTE-BRIEFING.md)** | IT-Briefing für den Fernzugriff-Betrieb (Server, Domain, TLS, Türsteher).                                       |
+| **[docs/FERNZUGRIFF.md](docs/FERNZUGRIFF.md)** | Fernbetrieb einrichten und nutzen: IT-Setup, Nutzerkonten, Verbinden aus Claude.                                                        |
 | **[docs/ABNAHME-PRUEFPROTOKOLL.md](docs/ABNAHME-PRUEFPROTOKOLL.md)** | Abnahme-Prüfprotokoll: automatische + Live-Sandbox-Wertprüfung.                                                   |
 
 ## Funktionsumfang

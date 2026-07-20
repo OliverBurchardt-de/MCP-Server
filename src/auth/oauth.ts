@@ -74,12 +74,16 @@ export const createState = (): string =>
 export const buildAuthorizeUrl = (
   config: DatevConfig,
   state: string,
-  challenge: string
+  challenge: string,
+  redirectUriOverride?: string
 ): string => {
   const url = new URL(config.authorizeUrl);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', config.clientId);
-  url.searchParams.set('redirect_uri', config.redirectUri);
+  url.searchParams.set(
+    'redirect_uri',
+    redirectUriOverride ?? config.redirectUri
+  );
   url.searchParams.set('scope', config.scopes.join(' '));
   url.searchParams.set('state', state);
   url.searchParams.set('code_challenge', challenge);
@@ -173,14 +177,17 @@ export const exchangeAuthorizationCode = (
   config: DatevConfig,
   code: string,
   verifier: string,
-  fetchImpl: FetchLike = fetch
+  fetchImpl: FetchLike = fetch,
+  redirectUriOverride?: string
 ): Promise<StoredTokens> =>
   requestTokens(
     config,
     new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: config.redirectUri,
+      // Muss exakt der beim Authorize verwendeten Redirect-URI entsprechen
+      // (lokaler Loopback ODER öffentlicher Remote-Callback).
+      redirect_uri: redirectUriOverride ?? config.redirectUri,
       code_verifier: verifier,
     }),
     fetchImpl

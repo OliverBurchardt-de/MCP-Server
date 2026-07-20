@@ -160,12 +160,19 @@ interface CloudStack {
   jobs: AccountPostingsJobRunner;
 }
 
+/** Startet DATEV-Anmeldungen im Fernbetrieb (siehe auth/remote-oauth.ts). */
+export interface RemoteLoginStarter {
+  beginLogin(ctx: RequestContext): { anmeldeUrl: string; anleitung: string };
+}
+
 /** Stellt die Geschäftslogik hinter den DATEV-Cloud-Tools bereit. */
 export class CloudTools {
   /** Verschlüsselte Mehrbenutzer-Token-Ablage (eine Datei je Umgebung). */
-  private readonly tokenRepository: EncryptedTokenRepository;
+  readonly tokenRepository: EncryptedTokenRepository;
   /** Bausteine je Nutzer-Slot — Tokens und laufende Jobs sind nutzergetrennt. */
   private readonly stacks = new Map<string, CloudStack>();
+  /** Im Fernbetrieb gesetzt: Login über den öffentlichen Callback statt Loopback. */
+  private remoteLogin?: RemoteLoginStarter;
 
   /**
    * @param config - Aktive Konfiguration; Standard ist die globale {@link config}.
@@ -251,7 +258,15 @@ export class CloudTools {
    * @returns Die Anmelde-URL plus eine umgebungsabhängige Anleitung.
    * @throws Error - wenn die App nicht konfiguriert ist (siehe {@link startLoginFlow}).
    */
+  /** Schaltet `datev_login` auf den Fernbetriebs-Weg um (öffentlicher Callback). */
+  useRemoteLogin(starter: RemoteLoginStarter): void {
+    this.remoteLogin = starter;
+  }
+
   login(ctx: RequestContext): Record<string, unknown> {
+    if (this.remoteLogin) {
+      return { ...this.remoteLogin.beginLogin(ctx) };
+    }
     const authorizeUrl = startLoginFlow(
       this.config,
       this.stackFor(ctx).tokenManager,

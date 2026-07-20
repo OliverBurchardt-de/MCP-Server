@@ -168,9 +168,38 @@ Format je Punkt: **Entscheidung · Begründung · Verworfene Alternative · Kons
   festen Einzelplatz-Principal — der Remote-Betrieb ersetzt **nur die Fabrik**
   (Kontext aus der authentifizierten Verbindung), Tools/Store/Autorisierung
   bleiben unverändert.
-- **Noch offen (Phase 3):** HTTPS-Transport (Streamable HTTP) mit
-  vorgeschalteter Bearer-Prüfung, Remote-OAuth-Callback-Controller,
-  per-Nutzer Login-Zustand des Loopback-Flows.
+- **Phase 3 umgesetzt** — siehe 5.5.
+
+### 5.5 Fernzugriff — Phase 3 umgesetzt (Transport, Eintrittstür, Callback)
+- **Entscheidung (umgesetzt):** Eigener Fernbetriebs-Entrypoint
+  (`npm run start:remote`, `src/index-remote.ts`) neben dem unveränderten
+  stdio-Betrieb:
+  1. **MCP-Endpunkt `/mcp`** über Streamable HTTP (SDK-Transport, JSON-
+     Antworten), jede Anfrage mit Bearer-Pflicht; **Sitzung fest an den
+     Nutzer gebunden** — eine `Mcp-Session-Id` allein autorisiert nie; ein
+     gesperrtes Konto verliert sofort den Zugang (Prüfung je Anfrage).
+  2. **OAuth-Eintrittstür** (`McpOAuthServer`): RFC-8414-Discovery, dynamische
+     Client-Registrierung, Authorize-Seite mit **Zugangsschlüssel** je
+     Mitarbeiter (`PrincipalRegistry`, nur Hashes, CLI `npm run add-user`
+     inkl. Offboarding mit Token-Widerruf), Token-Endpunkt mit PKCE (S256)
+     und Einmal-Codes. claude.ai verbindet sich als Custom Connector über
+     die Discovery.
+  3. **Öffentlicher DATEV-Callback** (`/oauth/datev/callback`,
+     `RemoteDatevOAuthController`): nutzt den persistenten Einmal-State aus
+     Phase 2, tauscht den Code über die öffentliche Redirect-URI und legt die
+     Tokens im verschlüsselten Slot des richtigen Nutzers ab; `datev_login`
+     schaltet im Fernbetrieb automatisch auf diesen Weg um.
+  4. **Schutzschichten:** Origin-Allowlist (DNS-Rebinding-Schutz),
+     Body-Größenlimit, Rate-Limit je Quell-IP, Sitzungs-Obergrenze,
+     Sicherheits-Header, generische Fehler nach außen; Bind an 127.0.0.1 —
+     TLS terminiert der Reverse Proxy (IT-Briefing).
+- **Begründung:** Direkt aus dem Review vom 20.07. (Phase 3) und der
+  Grundentscheidung 5.1; End-to-End getestet (kompletter OAuth-Tanz,
+  Sitzungsbindung, Sperren, Callback-Replay).
+- **Offen für den Echtbetrieb (Betriebs-/Kanzleiaufgaben):** Domain/TLS/
+  Reverse Proxy aufsetzen (FERNZUGRIFF.md), DATEV-Redirect-URL registrieren,
+  DATEV-Produktionsfreigabe, §-203-/DSGVO-Freigabe; technischer Feinschliff
+  laut Review Phase 4 (CI, Metriken, Quoten/TTL, persistente Jobs).
 
 ### 5.4 Authentifizierung & Tokenhaltung — Phase 2 umgesetzt
 - **Entscheidung (umgesetzt):** Vier Bausteine trennen eingehende Anmeldung
